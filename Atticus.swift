@@ -2773,8 +2773,11 @@ final class MiniScreen: NSObject, SCStreamOutput, SCStreamDelegate {
 final class TalkPen: NSView {
     var samples: [[Double]] = []
     var windows: [NSPanel] = []
-    var timer: CADisplayLink?
-    var bands: [CAShapeLayer] = [], edges: [CAShapeLayer] = []
+    var timer: CADisplayLink?, linked = NSRect.null   // ticks at the refresh rate of the display the cursor is on
+    var spare: [NSPanel] = []   // built empty at the press, so the first stroke never waits on window creation
+    // One tapered stroke, not stepped opacity bands: white ink over a soft dark edge so it reads on any background.
+    // The shapes are masks; the colour under them fades continuously with distance from the cursor.
+    let ink = CAShapeLayer(), edge = CAShapeLayer(), inkFill = CAGradientLayer(), edgeFill = CAGradientLayer()
     var glow = CAGradientLayer()
     let ripple = CAShapeLayer()
     var resting = false
@@ -2816,15 +2819,48 @@ final class TalkPen: NSView {
         if let tap { CGEvent.tapEnable(tap:tap,enable:true) }
     }
     func start() {
-        stop(); samples = []; sample()
-        timer = NSScreen.main?.displayLink(target:self,selector:#selector(sample))
-        timer?.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:60,preferred:60)  // Plip's rate and the gesture sample budget.
-        timer?.add(to:.main,forMode:.common)
+        stop(); samples = []; Self.contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast; sample(); link()
         claimClicks()
+        DispatchQueue.main.async { [weak self] in   // after the press is handled: windows are ready before the first move
+            guard let self, self.timer != nil, self.windows.isEmpty, self.spare.isEmpty else { return }
+            self.spare = self.panels()
+        }
+    }
+    // Ticking off another display's clock (the old fixed 60 Hz on the main one) shows as judder on a 100 or 120 Hz screen.
+    func link() {
+        let mouse = NSEvent.mouseLocation
+        guard !linked.contains(mouse) else { return }   // still on the same display: no screen list this frame
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        guard let screen, screen.frame != linked else { return }
+        timer?.invalidate(); linked = screen.frame
+        let hz = Float(min(120,max(60,screen.maximumFramesPerSecond)))
+        timer = screen.displayLink(target:self,selector:#selector(sample))
+        timer?.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:hz,preferred:hz)
+        timer?.add(to:.main,forMode:.common)
+    }
+    func panels() -> [NSPanel] {
+        NSScreen.screens.map { screen in
+            let w = DrawingPanel(contentRect:screen.frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
+            w.level = .screenSaver; w.isOpaque = false; w.backgroundColor = .clear; w.hasShadow = false
+            w.ignoresMouseEvents = true; applySharing(w)
+            w.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary]
+            let v = TalkPen(frame:NSRect(origin:.zero,size:screen.frame.size))
+            w.contentView = v; w.orderFrontRegardless(); v.makeLayers()
+            return w
+        }
+    }
+    // The gesture reader gets Plip's 60 Hz budget whatever rate the trail draws at.
+    var gesture: [[Double]] { Self.thin(samples) }
+    static func thin(_ samples: [[Double]]) -> [[Double]] {
+        var out: [[Double]] = []
+        for s in samples where out.last.map({ s[0]-$0[0] >= 1.0/60-0.002 }) ?? true { out.append(s) }
+        if let last = samples.last, out.last! != last { out.append(last) }   // the release point always counts
+        return out
     }
     func stop(fade: Bool = false) {
-        timer?.invalidate(); timer = nil
+        timer?.invalidate(); timer = nil; linked = .null
         if let tap, claimed.isEmpty { CGEvent.tapEnable(tap:tap,enable:false) }
+        spare.forEach { $0.orderOut(nil); $0.close() }; spare = []
         let old = windows; windows = []
         if fade {
             Motion.run(Motion.slow, { old.forEach { $0.animator().alphaValue = 0 } }) { old.forEach { $0.orderOut(nil); $0.close() } }
@@ -2848,19 +2884,62 @@ final class TalkPen: NSView {
     @objc func sample() {
         guard let p = CGEvent(source:nil)?.location else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        samples.append([now,p.x,p.y]); if samples.count > 2400 { samples.removeFirst(600) }
+        samples.append([now,p.x,p.y]); if samples.count > 4800 { samples.removeFirst(1200) }   // 40 s at 120 Hz
+        if timer != nil { link() }
         guard let first = samples.first, samples.contains(where: { hypot($0[1]-first[1],$0[2]-first[2]) > 24 }) else { return }
         if windows.isEmpty {
-            for screen in NSScreen.screens {
-                let w = DrawingPanel(contentRect:screen.frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
-                w.level = .screenSaver; w.isOpaque = false; w.backgroundColor = .clear; w.hasShadow = false
-                w.ignoresMouseEvents = true; applySharing(w)
-                w.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary]
-                let v = TalkPen(frame:NSRect(origin:.zero,size:screen.frame.size)); v.samples = samples
-                w.contentView = v; w.orderFrontRegardless(); windows.append(w)
+            windows = spare.count == NSScreen.screens.count ? spare : panels()
+            if windows != spare { spare.forEach { $0.orderOut(nil); $0.close() } }
+            spare = []
+        }
+        let stroke = Self.stroke(samples,now)
+        for w in windows { if let v = w.contentView as? TalkPen { v.samples = samples; v.draw(now,stroke:stroke) } }
+    }
+    // Centripetal Catmull-Rom through the samples: a fast circle stays round instead of showing its 60 Hz corners.
+    static func curve(_ points: [CGPoint]) -> [CGPoint] {
+        guard points.count > 2 else { return points }
+        var out = [points[0]]
+        for i in 0..<points.count-1 {
+            let p1 = points[i], p2 = points[i+1]
+            let p0 = i > 0 ? points[i-1] : CGPoint(x:2*p1.x-p2.x,y:2*p1.y-p2.y)
+            let p3 = i+2 < points.count ? points[i+2] : CGPoint(x:2*p2.x-p1.x,y:2*p2.y-p1.y)
+            func knot(_ a: CGPoint, _ b: CGPoint) -> Double { max(sqrt(hypot(b.x-a.x,b.y-a.y)),1e-3) }
+            let t1 = knot(p0,p1), t2 = t1+knot(p1,p2), t3 = t2+knot(p2,p3)
+            let steps = min(8,max(1,Int(hypot(p2.x-p1.x,p2.y-p1.y)/3)))
+            for k in 1...steps {
+                let t = t1+(t2-t1)*Double(k)/Double(steps)
+                func lerp(_ a: CGPoint, _ b: CGPoint, _ ta: Double, _ tb: Double) -> CGPoint {
+                    let u = (t-ta)/(tb-ta); return CGPoint(x:a.x+(b.x-a.x)*u,y:a.y+(b.y-a.y)*u)
+                }
+                let a1 = lerp(p0,p1,0,t1), a2 = lerp(p1,p2,t1,t2), a3 = lerp(p2,p3,t2,t3)
+                let b1 = lerp(a1,a2,0,t2), b2 = lerp(a2,a3,t1,t3)
+                out.append(k == steps ? p2 : lerp(b1,b2,t1,t2))
             }
         }
-        for w in windows { if let v = w.contentView as? TalkPen { v.samples = samples; v.render(now) } }
+        return out
+    }
+    // A felt tip lifting off: full width at the cursor, thinning to a point at the tail. Discs at every point plus
+    // quads between them, all wound the same way, so the nonzero fill is their union however the stroke crosses itself.
+    static func ribbon(_ points: [CGPoint], head: CGFloat, grow: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        var travelled = [0.0]
+        for (a,b) in zip(points,points.dropFirst()) { travelled.append(travelled.last!+hypot(b.x-a.x,b.y-a.y)) }
+        let total = max(travelled.last!,1e-6)
+        let radii = travelled.map { head*CGFloat(0.25+0.75*pow($0/total,0.7))+grow }
+        for (p,r) in zip(points,radii) {   // each disc its own subpath: addArc alone would join them with lines
+            path.move(to:CGPoint(x:p.x+r,y:p.y)); path.addArc(center:p,radius:r,startAngle:0,endAngle:-2 * .pi,clockwise:true); path.closeSubpath()
+        }
+        for i in 0..<points.count-1 {
+            let a = points[i], b = points[i+1], d = hypot(b.x-a.x,b.y-a.y)
+            guard d > 1e-6 else { continue }
+            let n = CGPoint(x:-(b.y-a.y)/d,y:(b.x-a.x)/d), ra = radii[i], rb = radii[i+1]
+            path.move(to:CGPoint(x:a.x+n.x*ra,y:a.y+n.y*ra))
+            path.addLine(to:CGPoint(x:b.x+n.x*rb,y:b.y+n.y*rb))
+            path.addLine(to:CGPoint(x:b.x-n.x*rb,y:b.y-n.y*rb))
+            path.addLine(to:CGPoint(x:a.x-n.x*ra,y:a.y-n.y*ra))
+            path.closeSubpath()
+        }
+        return path
     }
     // Plip gesture.smooth: a centered 50 ms moving average, with a running sum.
     static func smooth(_ samples: [[Double]]) -> [CGPoint] {
@@ -2881,19 +2960,14 @@ final class TalkPen: NSView {
         wantsLayer = true
         let scale = window?.backingScaleFactor ?? 2
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        func strokes(_ color: NSColor, _ peak: Double, _ width: Double) -> [CAShapeLayer] {
-            (0..<8).map { band in
-                let target = peak*pow(Double(band+1)/8,1.6), below = peak*pow(Double(band)/8,1.6)
-                let line = CAShapeLayer()
-                line.contentsScale = scale; line.fillColor = nil
-                line.strokeColor = color.withAlphaComponent(1-(1-target)/(1-below)).cgColor
-                line.lineWidth = width; line.lineCap = .round; line.lineJoin = .round
-                layer!.addSublayer(line); return line
-            }
+        guard ink.superlayer == nil else { return }
+        // Opaque masks with the alpha on the fill: where the stroke crosses itself it never darkens or doubles.
+        for (fill, shape, color, alpha) in [(edgeFill, edge, NSColor.black, contrast ? 0.6 : 0.3), (inkFill, ink, .white, 0.95)] {
+            shape.contentsScale = scale; shape.fillColor = NSColor.black.cgColor; shape.strokeColor = nil; shape.fillRule = .nonZero
+            fill.type = .radial; fill.contentsScale = scale; fill.mask = shape; fill.opacity = Float(alpha)
+            fill.colors = [color.cgColor,color.cgColor,color.withAlphaComponent(0.1).cgColor]; fill.locations = [0,0.35,1]
+            layer!.addSublayer(fill)
         }
-        // All edges under all ink bands, as in Plip: later edges never cover earlier ink.
-        edges = strokes(.black,contrast ? 0.6 : 0.3,contrast ? 8.5 : 7.5)
-        bands = strokes(.white,0.95,6)
         func disc(_ color: NSColor, _ alpha: Double, _ radius: Double) -> CAGradientLayer {
             let disc = CAGradientLayer(); disc.type = .radial; disc.contentsScale = scale
             disc.colors = [color.withAlphaComponent(alpha).cgColor,color.withAlphaComponent(alpha*0.9).cgColor,NSColor.clear.cgColor]
@@ -2910,30 +2984,56 @@ final class TalkPen: NSView {
         rim.strokeColor = NSColor.white.cgColor; rim.lineWidth = 1.5; rim.contentsScale = scale; ripple.addSublayer(rim)
         ripple.contentsScale = scale; ripple.opacity = 0; layer!.addSublayer(ripple)
     }
-    func render(_ now: Double) {
+    // The stroke in global top-left points, built once per tick and shared by every display's panel.
+    struct Stroke { var box: CGRect, ink: CGPath, edge: CGPath, center: CGPoint, end: CGPoint }
+    static var contrast = false   // read once per press: the setting is a system lookup, too slow for every frame
+    static func stroke(_ samples: [[Double]], _ now: Double) -> Stroke? {
+        guard let last = samples.last, let first = samples.first else { return nil }
+        let moving = samples.last(where: { hypot($0[1]-last[1],$0[2]-last[2]) > 3 })?[0] ?? first[0]
+        let settled = min(1,max(0,(now-moving-0.08)/Motion.slow)), tail = 0.9*(1-settled*settled*(3-2*settled))
+        guard tail > 0 else { return nil }
+        // 25 ms of context before the cut keeps the average honest at the tail; the cut itself is interpolated,
+        // so the tail slides back continuously instead of dropping a whole sample each frame.
+        let cut = now-tail, from = samples.lastIndex { $0[0] < cut-0.03 } ?? 0
+        let recent = Array(samples[from...])
+        let smoothed = Self.smooth(recent)
+        var points: [CGPoint] = []
+        for i in recent.indices where recent[i][0] >= cut {
+            if points.isEmpty, i > 0 {
+                let a = recent[i-1][0], t = (cut-a)/max(recent[i][0]-a,1e-6), p = smoothed[i-1], q = smoothed[i]
+                points.append(CGPoint(x:p.x+(q.x-p.x)*t,y:p.y+(q.y-p.y)*t))
+            }
+            points.append(smoothed[i])
+        }
+        points.append(CGPoint(x:last[1],y:last[2]))  // Plip: pin the head to the cursor, never the lagging average.
+        points = Self.curve(points)
+        let length = zip(points,points.dropFirst()).reduce(0.0) { $0+hypot($1.1.x-$1.0.x,$1.1.y-$1.0.y) }
+        points = Self.resample(points,step:max(2,length/120))
+        guard points.count > 1, length >= 6 else { return nil }
+        // The fill covers only the stroke's bounds, centred on the cursor and reaching the far end of the tail.
+        let grow: CGFloat = contrast ? 1.25 : 0.9
+        let xs = points.map(\.x), ys = points.map(\.y), head = points.last!
+        let box = CGRect(x:xs.min()!,y:ys.min()!,width:xs.max()!-xs.min()!,height:ys.max()!-ys.min()!).insetBy(dx:-6,dy:-6)
+        let reach = points.map { hypot($0.x-head.x,$0.y-head.y) }.max()!+4
+        let local = points.map { CGPoint(x:$0.x-box.minX,y:$0.y-box.minY) }
+        let center = CGPoint(x:(head.x-box.minX)/box.width,y:(head.y-box.minY)/box.height)
+        return Stroke(box:box,ink:Self.ribbon(local,head:3,grow:0),edge:Self.ribbon(local,head:3,grow:grow),
+                      center:center,end:CGPoint(x:center.x+reach/box.width,y:center.y+reach/box.height))
+    }
+    func render(_ now: Double) { draw(now,stroke:Self.stroke(samples,now)) }
+    func draw(_ now: Double, stroke: Stroke?) {
         guard let w = window, let last = samples.last, let first = samples.first else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if bands.isEmpty { makeLayers() }
+        makeLayers()
         let top = NSScreen.screens.first?.frame.maxY ?? 0
         let origin = CGPoint(x:w.frame.minX,y:top-w.frame.maxY)
-        let moving = samples.last(where: { hypot($0[1]-last[1],$0[2]-last[2]) > 3 })?[0] ?? first[0]
-        let settled = min(1,max(0,(now-moving-0.08)/Motion.slow)), tail = 0.9*(1-settled*settled*(3-2*settled))
-        let recent = samples.filter { now-$0[0] <= tail+0.06 }
-        var points = Self.smooth(recent)
-        points.append(CGPoint(x:last[1],y:last[2]))  // Plip: pin the head to the cursor, never the lagging average.
-        let length = zip(points,points.dropFirst()).reduce(0.0) { $0+hypot($1.1.x-$1.0.x,$1.1.y-$1.0.y) }
-        points = Self.resample(points,step:max(3,length/120))
-        for band in 0..<8 {
-            var path: CGPath?
-            if points.count > 1 && tail > 0 && length >= 6 {
-                let begin = Int((0.6*Double(band)/7*Double(points.count-1)).rounded())
-                let line = CGMutablePath()
-                line.addLines(between:points.dropFirst(begin).map { CGPoint(x:$0.x-origin.x,y:$0.y-origin.y) })
-                path = line
+        if let stroke, stroke.box.intersects(CGRect(origin:origin,size:w.frame.size)) {
+            for fill in [inkFill,edgeFill] {
+                fill.frame = stroke.box.offsetBy(dx:-origin.x,dy:-origin.y); fill.startPoint = stroke.center; fill.endPoint = stroke.end
             }
-            bands[band].path = path; edges[band].path = path
-        }
+            ink.path = stroke.ink; edge.path = stroke.edge
+        } else if ink.path != nil { ink.path = nil; edge.path = nil }   // another display's stroke: nothing to send this frame
         let still = samples.filter { now-$0[0] <= 0.35 }
         let resting = now-first[0] > 0.35 && hypot(last[1]-first[1],last[2]-first[2]) > 40 &&
             still.count > 2 && still.allSatisfy { hypot($0[1]-last[1],$0[2]-last[2]) <= 18 }
@@ -3295,14 +3395,14 @@ final class App: NSObject, WKScriptMessageHandler {
     var talkPath: [[Double]] = [], talkReleased = false
     var talkMoved: Bool {
         if talkReleased { return !talkPath.isEmpty }   // settleTalkPointer kept only classified intent
-        let path = talkPen.samples
+        let path = talkPen.gesture
         guard let first = path.first else { return false }
         return path.contains { hypot($0[1]-first[1],$0[2]-first[2]) >= 40 } ||
             text.range(of:#"\b(this|that|these|those|here)\b"#,options:[.regularExpression,.caseInsensitive]) != nil
     }
     func sampleTalkPointer() {
         guard !dictating, !clickTalk, !toggleTalk, !talkReleased else { return }
-        talkPath = talkPen.samples
+        talkPath = talkPen.gesture
     }
     func settleTalkPointer() {
         guard let first = talkPath.first else { return }

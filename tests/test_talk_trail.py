@@ -15,15 +15,15 @@ class TalkTrailTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / 'Atticus.swift').read_text()
         pen = source[source.index('final class TalkPen:'):source.index('func boxWidth(')]
         pen = pen.replace('guard let p = CGEvent(source:nil)?.location else { return }', 'let p = inputLock.withLock { inputPoint }')
-        hook = 'override func draw(_ dirty: NSRect) {' if 'override func draw(' in pen else 'func render(_ now: Double) {'
+        hook = 'func draw(_ now: Double, stroke: Stroke?) {'
         pen = pen.replace('v.needsDisplay = true', 'v.needsDisplay = true; v.displayIfNeeded()')
         pen = pen.replace(hook, hook + '''
         let began = ProcessInfo.processInfo.systemUptime
         defer { frameTimes.append(began); workTimes.append(ProcessInfo.processInfo.systemUptime-began) }
 ''')
         pen = pen.replace('func sample() {', 'func sample() {\nlet tickBegan = ProcessInfo.processInfo.systemUptime\ndefer { tickTimes.append(ProcessInfo.processInfo.systemUptime-tickBegan) }')
-        pen = pen.replace('points = Self.resample(points,step:max(3,length/120))',
-                          'points = Self.resample(points,step:max(3,length/120)); geometryCounts.append(points.count)')
+        pen = pen.replace('points = Self.resample(points,step:max(2,length/120))',
+                          'points = Self.resample(points,step:max(2,length/120)); geometryCounts.append(points.count)')
         result = run_swift(self, 'import AppKit\nfunc applySharing(_ w: NSWindow) {}\n' + swift_motion(source) +
                            source[source.index('final class DrawingPanel:'):source.index('struct DrawingShape:')] + '''
 var geometryCounts: [Int] = []
@@ -111,23 +111,35 @@ let points = TalkPen.resample(smoothed,step:3)
 precondition(points.first == smoothed.first && points.last == smoothed.last)
 for (a,b) in zip(points,points.dropFirst()) { precondition(hypot(a.x-b.x,a.y-b.y) <= 3.000001) }
 let pen = TalkPen(); pen.start()
-precondition(pen.timer?.preferredFrameRateRange.preferred == 60,"gesture capture exceeded its sample budget")
+let display = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
+precondition(pen.timer?.preferredFrameRateRange.preferred == Float(min(120,max(60,display.maximumFramesPerSecond))),"trail ticks off another display's clock")
+let fast: [[Double]] = (0..<240).map { i -> [Double] in [Double(i)/120,Double(i),0] }
+let thinned: [[Double]] = TalkPen.thin(fast)
+let spaced: Bool = zip(thinned,thinned.dropFirst().dropLast()).allSatisfy { (a: [Double], b: [Double]) -> Bool in b[0]-a[0] >= 1.0/60-0.002 }
+precondition(spaced && thinned.count <= 121,"gesture capture exceeded its sample budget")
+let ends: Bool = thinned.first! == fast.first! && thinned.last! == fast.last!
+precondition(ends,"thinning lost the press or release point")
 precondition(pen.windows.isEmpty,"stationary press drew a mark")
 let p = CGEvent(source:nil)!.location, now = ProcessInfo.processInfo.systemUptime
 pen.samples = [[now-0.1,p.x-10,p.y]]; pen.sample()
 precondition(pen.windows.isEmpty,"trackpad jitter drew a mark")
 pen.samples = [[now-0.5,p.x-100,p.y-100]]; pen.sample()
 let view = pen.windows.first!.contentView as! TalkPen
-let bands = view.bands, edges = view.edges
-precondition(bands.count == 8 && edges.count == 8)
+let layers = view.layer!.sublayers!.count
+precondition(view.inkFill.mask === view.ink && view.edgeFill.mask === view.edge && view.inkFill.superlayer === view.layer)
 view.render(now+0.01)
-precondition(zip(bands,view.bands).allSatisfy { $0 === $1 })
-precondition(zip(edges,view.edges).allSatisfy { $0 === $1 })
+precondition(view.layer!.sublayers!.count == layers,"each frame added layers")
 precondition(view.layer!.animationKeys() == nil,"implicit frame animations")
-for line in view.bands + view.edges { precondition(line.animationKeys() == nil) }
+for line in [view.ink, view.edge, view.inkFill, view.edgeFill] { precondition(line.animationKeys() == nil) }
+// a stroke that crosses itself fills as one shape: no holes where it overlaps
+let loop = TalkPen.curve((0...40).map { i in let t = Double(i)/40*2 * .pi; return CGPoint(x:200+120*sin(t),y:200+60*sin(2*t)) })
+let ribbon = TalkPen.ribbon(loop,head:3,grow:0)
+precondition(loop.dropFirst(loop.count/4).allSatisfy { ribbon.contains($0,using:.winding) },"crossing stroke left holes")
+precondition(![CGPoint(x:100,y:200),CGPoint(x:300,y:200),CGPoint(x:200,y:150),CGPoint(x:200,y:250)].contains { ribbon.contains($0,using:.winding) },
+             "the stroke filled the space around it")
 view.samples = [[now-1,p.x-100,p.y-100]] + (0..<60).map { [now-0.5+Double($0)/120,p.x,p.y] }
 view.render(now)
-precondition(view.bands.allSatisfy { $0.path == nil },"stopped tail did not draw back")
+precondition(view.ink.path == nil && view.edge.path == nil,"stopped tail did not draw back")
 precondition(view.resting && view.glow.opacity == 1)
 precondition(view.glow.animation(forKey:"grow") != nil && view.ripple.animation(forKey:"ripple") != nil)
 view.render(now+0.01)

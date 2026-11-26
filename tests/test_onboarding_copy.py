@@ -84,8 +84,12 @@ class OnboardingMatchesAppTests(unittest.TestCase):
         self.assertIn('NSColor(calibratedRed:18/255,green:18/255,blue:20/255,alpha:0.85)', swift); self.assertIn('background: rgba(var(--gray-7-rgb),.85)', self.page)
         self.assertIn('--gray-7-rgb: 18,18,20;', (ROOT / 'ui/tokens.css').read_text())
         self.assertIn('cornerRadius = 18', swift); self.assertIn('width: 340px; border-radius: 18px', self.page)
-        self.assertIn('edges = strokes(.black,contrast ? 0.6 : 0.3,contrast ? 8.5 : 7.5)\n        bands = strokes(.white,0.95,6)', swift)
-        self.assertIn("[['0,0,0', .3, 7.5], ['255,255,255', .95, 6]]", self.page)   # TalkPen's edge and ink
+        self.assertIn('(edgeFill, edge, NSColor.black, contrast ? 0.6 : 0.3), (inkFill, ink, .white, 0.95)', swift)
+        self.assertIn('let grow: CGFloat = contrast ? 1.25 : 0.9', swift)
+        self.assertIn("[['0,0,0', .3, .9], ['255,255,255', .95, 0]]", self.page)   # TalkPen's edge and ink: alpha and edge growth
+        self.assertIn('head*CGFloat(0.25+0.75*pow($0/total,0.7))+grow', swift); self.assertIn('head * (.25 + .75 * (d / total) ** .7) + grow', self.page)
+        self.assertIn('fill.locations = [0,0.35,1]', swift); self.assertIn('g.addColorStop(.35', self.page)
+        self.assertIn('ribbon(local,head:3,grow:0)', swift); self.assertIn('ribbon(c, pts, 3, grow)', self.page)
         self.assertIn('tail = 0.9*(1-settled*settled*(3-2*settled))', swift); self.assertIn('tail = .9 * (1 - settled * settled * (3 - 2 * settled))', self.page)
         self.assertIn('if let arrow = arrowCursorScript() { cfg.userContentController.addUserScript(arrow) }', swift)   # the system arrow, not a drawing of one
 
