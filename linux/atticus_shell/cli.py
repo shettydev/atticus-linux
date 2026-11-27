@@ -38,8 +38,8 @@ HANDLERS = {
 
 def main(argv):
     if not argv:
-        from atticus_shell import box   # GTK loads only for the app itself, never for a helper call
-        return box.run_app()
+        import importlib
+        return importlib.import_module('atticus_shell.box').run_app()   # GTK loads only for the app itself, never for a helper call
     handler = HANDLERS.get(argv[0])
     if handler is None:
         print(f'atticus-shell: unknown option {argv[0]}', file=sys.stderr)

@@ -45,7 +45,11 @@ def js_call(fn, args):
 
 
 def eval_error_row(call, message, line, column):
-    m = re.match(r'^[A-Z]\w{0,30}(?:Error|Exception)(?=: )', message or '')
+    message = message or ''
+    where = re.match(r'^\S*?:(\d+):(\d+): ', message)   # WebKitGTK: "about:blank:1:3: ReferenceError: …"
+    if where:
+        line, column, message = where.group(1), where.group(2), message[where.end():]
+    m = re.match(r'^[A-Z]\w{0,30}(?:Error|Exception)(?=: )', message)
     return [re.match(r'[A-Za-z]*', call).group(0), m.group(0) if m else 'thrown', 'eval', str(line or 0), str(column or 0)]
 
 
@@ -106,6 +110,20 @@ def call_js(view, fn, args):
         except Exception as e:   # GLib.Error: "TypeError: …" for a JavaScript exception
             message = str(getattr(e, 'message', e))
             view.report_error(eval_error_row(fn, message, 0, 0))
+    if hasattr(view, 'evaluate_javascript'):
+        view.evaluate_javascript(script, -1, None, None, None, done)
+    else:
+        view.run_javascript(script, None, done)
+
+
+def eval_js(view, script, callback):
+    """Run script in the page; callback gets its JSON-able result (None on error)."""
+    def done(v, result):
+        try:
+            value = (v.evaluate_javascript_finish if hasattr(v, 'evaluate_javascript_finish') else v.run_javascript_finish)(result)
+            callback(_value(value))
+        except Exception:
+            callback(None)
     if hasattr(view, 'evaluate_javascript'):
         view.evaluate_javascript(script, -1, None, None, None, done)
     else:

@@ -31,6 +31,8 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(W.eval_error_row('ui.show(...[])', "TypeError: undefined is not a function", 3, 9),
                          ['ui', 'TypeError', 'eval', '3', '9'])
         self.assertEqual(W.eval_error_row('st.x', 'boom', 0, 0)[1], 'thrown')
+        self.assertEqual(W.eval_error_row('ui.line(...[])', "about:blank:1:3: ReferenceError: Can't find variable: ui", 0, 0),
+                         ['ui', 'ReferenceError', 'eval', '1', '3'])   # WebKitGTK's own location prefix
 
 
 def spin(until, secs=10):
