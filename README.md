@@ -81,6 +81,10 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 
 Every feature in detail: **[the guide](docs/GUIDE.md)**.
 
+> **On Linux?** This fork runs on GNOME, KDE, X11 window managers, Hyprland and Sway, on x86_64 and ARM64:
+> `curl -fsSL https://raw.githubusercontent.com/shettydev/atticus-linux/main/install-linux.sh | bash`.
+> Setup, what's different and how to test: **[docs/LINUX.md](docs/LINUX.md)**.
+
 > **On Windows?** [@FindlayHi](https://github.com/FindlayHi) built **[Atticus for Windows](https://github.com/FindlayHi/atticus-windows)**.
 
 ## Privacy
