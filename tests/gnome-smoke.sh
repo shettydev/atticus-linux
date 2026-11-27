@@ -8,6 +8,17 @@ apt-get update -qq
 apt-get install -y --no-install-recommends gnome-shell dbus-x11 gir1.2-webkit-6.0 python3-gi libgl1-mesa-dri
 # Exercise the source installer users run. APT can accept the transaction in this container.
 echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/99-atticus-smoke
+# Check readability even in containers where APT suppresses its fallback notice.
+apt() {
+    for arg in "$@"; do
+        if [[ "$arg" == *.deb ]] && ! runuser -u _apt -- test -r "$arg"; then
+            echo "APT sandbox user cannot read $arg" >&2
+            return 1
+        fi
+    done
+    command apt "$@"
+}
+export -f apt
 ./install.sh </dev/null
 install -d /run/dbus
 dbus-daemon --system --fork

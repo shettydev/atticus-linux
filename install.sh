@@ -10,9 +10,12 @@ if [[ $(uname -s) == Linux ]]; then
     exit 1
   fi
   cd "$src"
-  packages=$(mktemp -d)
+  packages=$(mktemp -d /tmp/atticus-packages.XXXXXX)
   trap 'rm -rf "$packages"' EXIT
   ./linux/build-deb.sh "$packages"
+  # APT's _apt user needs to traverse the directory and read the finished packages.
+  chmod 0644 "$packages"/*.deb
+  chmod 0711 "$packages"
   if [[ $EUID -eq 0 ]]; then apt install --reinstall "$packages"/*.deb
   else sudo apt install --reinstall "$packages"/*.deb; fi
   echo "Log out and back in, then enable the bridge with: gnome-extensions enable desktop@atticus.local"
