@@ -908,6 +908,82 @@ def queue(name):
             'Say “play …” to start it now instead.')
 
 
+# --- contacts and the user's own card -----------------------------------------------------------------------------------
+def _home():
+    return os.path.expanduser('~')
+
+
+def _gecos():
+    import pwd
+    try:
+        return pwd.getpwuid(os.getuid()).pw_gecos
+    except KeyError:
+        return ''
+
+
+def _vcards():
+    """vCards from Evolution Data Server address books and ~/.local/share/contacts/*.vcf."""
+    import glob
+    import sqlite3
+    texts = []
+    for db in glob.glob(os.path.join(_home(), '.local/share/evolution/addressbook/*/contacts.db')):
+        try:
+            con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+            texts += [row[0] for row in con.execute('SELECT vcard FROM folder_id') if row[0]]
+            con.close()
+        except sqlite3.Error:
+            continue
+    for path in glob.glob(os.path.join(_home(), '.local/share/contacts/*.vcf')):
+        try:
+            with open(path, encoding='utf-8', errors='replace') as f:
+                texts.append(f.read())
+        except OSError:
+            continue
+    cards = []
+    for text in texts:
+        for block in re.findall(r'BEGIN:VCARD(.*?)END:VCARD', re.sub(r'\r?\n[ \t]', '', text), re.S | re.I):
+            card = {'name': '', 'nickname': '', 'organization': '', 'emails': [], 'phones': []}
+            for line in block.splitlines():
+                if ':' not in line:
+                    continue
+                key, value = line.split(':', 1)
+                key = key.split(';')[0].upper()
+                if key == 'FN':
+                    card['name'] = value.strip()
+                elif key == 'NICKNAME':
+                    card['nickname'] = value.strip()
+                elif key == 'ORG':
+                    card['organization'] = value.split(';')[0].strip()
+                elif key == 'EMAIL':
+                    card['emails'].append(value.strip())
+                elif key == 'TEL':
+                    card['phones'].append(value.strip())
+            if card['name'] or card['emails']:
+                cards.append(card)
+    return cards
+
+
+def contacts(query):
+    import atticus
+    cards = _vcards()
+    own = {'name': (_gecos().split(',')[0]).strip(), 'related': []}
+    indexed = [{'index': i, 'name': c['name'], 'nickname': c['nickname'], 'organization': c['organization']} for i, c in enumerate(cards)]
+    matches = [{k: cards[m['index']][k] for k in ('name', 'emails', 'phones')} for m in atticus.contact_matches(query, indexed, own)]
+    if not cards:
+        return 'Contacts unavailable. Use the app address book or ask for the recipient.'
+    return json.dumps({'matches': matches, 'ownCard': own, 'profile': atticus.profile_context(query),
+                       'guidance': "Use related names to resolve relationships, then look up that name. Profile facts are the user's own words and "
+                                   'win over card values. Missing/ambiguous recipient: ask, never guess.'})
+
+
+def mac_profile():
+    """The import Settings offers: on Linux, the account's full name (no "my card" or Mail accounts to read)."""
+    name = _gecos().split(',')[0].strip()
+    return {'contacts': {'name': name, 'pronouns': '', 'birthday': '', 'emails': [], 'phones': [], 'urls': [], 'addresses': [],
+                         'organization': '', 'department': '', 'jobTitle': '', 'social': [], 'related': []} if name else None,
+            'mail': None, 'errors': ['mail'] + ([] if name else ['contacts'])}
+
+
 def _stub(name, task):
     def stub(*args, **kwargs):
         raise NotImplementedError(f'linux: {name} lands in {task}')
@@ -917,15 +993,14 @@ def _stub(name, task):
 
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
-        'mac_profile': 'Task 33', 'contacts': 'Task 33',
-    'need': 'Task 36', 'automation_hint': 'Task 36',
+        'need': 'Task 36', 'automation_hint': 'Task 36',
 }
 
 REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{f.__name__: f for f in (
     thumb, preview_commands, restore_focus, request_screen, placement_window, front, _place, keep_behind, show, installed_apps,
     proc_of, app_id, app_running, quit_app, notify, open_command, launches_program, background_tab, remember_background_tab, browser_terms,
     browser_adapter, close_agent_window, work_page, page_document, work_tab_page, show_tab, allow_page_js, agent_window_id, web,
-    routine_job_path, routine_install, routine_repair, routine_remove, routine_fire, playlist, play, queue)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
+    routine_job_path, routine_install, routine_repair, routine_remove, routine_fire, playlist, play, queue, contacts, mac_profile)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
 
 # Touch macOS words only to classify command text the model wrote; the same rules hold on Linux.
 PORTABLE = {
