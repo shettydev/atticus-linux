@@ -142,7 +142,7 @@ pub fn run_gui_daemon(prefs: Arc<Prefs>, open_settings_immediately: bool) -> i32
                 &main_win,
                 gtk4_layer_shell::KeyboardMode::OnDemand,
             );
-            gtk4_layer_shell::LayerShell::set_namespace(&main_win, Some("atticus-overlay"));
+            gtk4_layer_shell::LayerShell::set_namespace(&main_win, "atticus-overlay");
         }
 
         let ucc = webkit6::UserContentManager::new();
