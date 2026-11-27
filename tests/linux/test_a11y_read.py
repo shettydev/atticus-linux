@@ -63,6 +63,11 @@ class MapTests(unittest.TestCase):
                                        kids=[acc('push button', f'b{i}', rect=(0, 0, 5, 5), states={'showing'}) for i in range(5000)])])
         self.assertLessEqual(len(A.capture_app(big).nodes), A.BUDGET)
 
+    def test_single_line_text_is_a_text_field(self):
+        app = A.FakeApp('Form', 1, [acc('frame', 'Form', rect=(0, 0, 9, 9), states={'active', 'showing'},
+                                        kids=[acc('text', 'Name', 'Sam', rect=(1, 1, 5, 5), states={'showing', 'editable', 'single line'})])])
+        self.assertEqual(A.capture_app(app).nodes[0].role, 'AXTextField')
+
     def test_password_fields_are_secret(self):
         app = A.FakeApp('Login', 1, [acc('frame', 'Sign in', rect=(0, 0, 9, 9), states={'active', 'showing'},
                                          kids=[acc('password text', 'Password', 'hunter2', rect=(1, 1, 5, 5), states={'showing', 'editable'})])])

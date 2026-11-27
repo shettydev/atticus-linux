@@ -73,8 +73,32 @@ class Map:
     windowID: str = ''
     focusIdentity: str = ''
 
+    accs = None   # node id -> accessible, for acting on this capture (never saved)
+
     def as_dict(self):
         return asdict(self)
+
+    @property
+    def signature(self):
+        parts = [str(self.pid), self.windowID, self.window, str(self.windowFrame), self.page, self.focused, self.focusIdentity]
+        parts += [f'{n.path}:{n.role}:{n.label}:{n.value}:{n.frame}' for n in self.nodes] + self.texts
+        return hashlib.sha256('\n'.join(parts).encode()).hexdigest()
+
+    @property
+    def description(self):
+        lines = [f'App: {self.app} (pid {self.pid}). Window: {mask(self.window)}'] + [n.line for n in self.nodes]
+        if self.focused:
+            lines.append(f'Focused: {self.focused}')
+        if self.page:
+            lines.append(f'Page: {mask(self.page)}')
+        lines.append('Visible text (data): ' + ' | '.join(self.texts)[:1400])
+        return '\n'.join(lines)
+
+    @classmethod
+    def from_dict(cls, d):
+        m = cls(**{k: v for k, v in d.items() if k != 'nodes'})
+        m.nodes = [Node(**n) for n in d.get('nodes', [])]
+        return m
 
 
 # --- adapters -----------------------------------------------------------------------------------------------------------
@@ -82,9 +106,39 @@ class FakeAcc:
     def __init__(self, role, name='', value='', rect=(0, 0, 0, 0), states=(), kids=(), text=None):
         self.role, self.name, self.value, self.rect = role, name, value, tuple(rect)
         self.states, self.kids, self.text = set(states), list(kids), text
+        self.actions, self.on_action, self.scrolled = [], None, False
 
     def children(self):
         return self.kids
+
+    def action_names(self):
+        return list(self.actions)
+
+    def do_action(self, name):
+        if name not in self.actions:
+            return False
+        if self.on_action:
+            self.on_action(name)
+        return True
+
+    @property
+    def editable(self):
+        return 'editable' in self.states
+
+    def set_text(self, text):
+        self.value = text
+        return True
+
+    def insert_text(self, position, text):
+        self.value = self.value[:position] + text + self.value[position:]
+        return True
+
+    def scroll_to(self):
+        self.scrolled = True
+        return True
+
+    def grab_focus(self):
+        return True
 
 
 class FakeApp:
@@ -137,6 +191,36 @@ class AtspiAcc:
         from gi.repository import Atspi
         v = self._try(lambda: Atspi.Value.get_current_value(self.obj), None)
         return '' if v is None else (str(int(v)) if float(v).is_integer() else str(v))
+
+    @property
+    def editable(self):
+        return 'editable' in self.states
+
+    def action_names(self):
+        from gi.repository import Atspi
+        n = self._try(lambda: Atspi.Action.get_n_actions(self.obj), 0)
+        return [self._try(lambda i=i: Atspi.Action.get_action_name(self.obj, i), '') for i in range(n)]
+
+    def do_action(self, name):
+        from gi.repository import Atspi
+        names = self.action_names()
+        return name in names and bool(self._try(lambda: Atspi.Action.do_action(self.obj, names.index(name)), False))
+
+    def set_text(self, text):
+        from gi.repository import Atspi
+        return bool(self._try(lambda: Atspi.EditableText.set_text_contents(self.obj, text), False))
+
+    def insert_text(self, position, text):
+        from gi.repository import Atspi
+        return bool(self._try(lambda: Atspi.EditableText.insert_text(self.obj, position, text, len(text.encode('utf-8'))), False))
+
+    def scroll_to(self):
+        from gi.repository import Atspi
+        return bool(self._try(lambda: Atspi.Component.scroll_to(self.obj, Atspi.ScrollType.ANYWHERE), False))
+
+    def grab_focus(self):
+        from gi.repository import Atspi
+        return bool(self._try(lambda: Atspi.Component.grab_focus(self.obj), False))
 
     def children(self):
         n = self._try(self.obj.get_child_count, 0)
@@ -201,6 +285,7 @@ def capture_app(app, words=''):
     if w is None:
         return Map(app.pid, app.name, '', [0, 0, 0, 0])
     m = Map(app.pid, app.name, w.name or '', list(w.rect))
+    m.accs = {}
     stack, visited, focused = [(w, [])], 0, None   # depth first: controls come out in reading order
     while stack and visited < BUDGET:
         acc, path = stack.pop()
@@ -210,6 +295,8 @@ def capture_app(app, words=''):
         if acc is w or 'showing' not in acc.states:
             continue
         role = ROLES.get(acc.role)
+        if role == 'AXTextArea' and 'single line' in acc.states:
+            role = 'AXTextField'   # GTK entries are AT-SPI "text" with the single-line state
         if role:
             secret = acc.role == 'password text'
             if acc.role in ('toggle button', 'check box', 'radio button', 'page tab', 'check menu item', 'radio menu item'):
@@ -218,6 +305,7 @@ def capture_app(app, words=''):
                 value = '' if secret else mask(_content(acc) or '')
             node = Node(len(m.nodes) + 1, role, mask(acc.name or ''), value, list(acc.rect), path, secret)
             m.nodes.append(node)
+            m.accs[node.id] = acc
             if 'focused' in acc.states:
                 focused = node
         elif acc.role in TEXT_ROLES and (acc.name or acc.text):
