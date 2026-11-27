@@ -24,6 +24,8 @@
   html { background: transparent; }   /* native glass tint sits below the live window layer */
   #card { padding: 14px 20px 18px; animation: pop var(--t-slow) var(--spring) both; box-sizing: border-box;
     display: flex; flex-direction: column; max-height: var(--screen-height, 10000px); }
+  body.linux #card { background: rgba(var(--gray-7-rgb),.94); border-radius: 18px; box-shadow: inset 0 0 0 1px rgba(var(--white-rgb),.12); }
+  body.linux.tiny.folded:not(.fold-morph) #card { border-radius: 50%; }
   #card.again { animation: none; }
   #card.held { box-sizing: border-box; display: flex; flex-direction: column; }   /* dragged to a height: keep it */
   #card.held #comp { margin-top: auto; } #card.held #thread { margin-bottom: 14px; }
@@ -601,6 +603,16 @@
     else comp(true, true);
   };
   $('fold').onclick = () => manualFold(!foldedOrFolding());
+  if (window.atticusPlatform === 'linux') {
+    document.body.classList.add('linux');
+    $('x').onclick = e => { e.stopPropagation(); post({ close: true }); };
+    $('card').addEventListener('click', e => {
+      if (e.target.closest('button, input, textarea, select, a, #x, #fold, #comp, .ok, .pk, .rewrite, .a')) return;
+      if (foldedOrFolding()) return manualFold(false);
+      if (!document.body.classList.contains('dictate')) comp(true, true);
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); post({ close: true }); } });
+  }
   const fit = (follow = true) => {
     const card = $('card'); webkit.messageHandlers.h.postMessage(document.body.classList.contains('dictate') ? [card.offsetWidth, card.offsetHeight] : card.offsetHeight);   // the dictation pill sizes its width too
     if (!folded && follow && atBottom) $('thread').scrollTop = $('thread').scrollHeight;

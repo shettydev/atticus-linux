@@ -15,14 +15,16 @@ pub fn dispatch_cli(args: &[String]) -> Option<i32> {
         "--help" | "-h" => {
             println!(
                 "Atticus Linux host daemon & CLI helper.\n\
-                 Run with no arguments to start the desktop daemon.\n\
-                 Subcommands: --screens [--visible] | --place <app> <where> <screen> [title] |\n\
+                 Run with no arguments to start the background tray daemon.\n\
+                 Control commands: --ask | --toggle | --dictate | --settings | --onboarding |\n\
+                 --agents | --meeting | --quit\n\
+                 Helper subcommands: --screens [--visible] | --place <app> <where> <screen> [title] |\n\
                  --window-target <app> [title] | --target-app <app> | --user-app | --front-window |\n\
                  --focus <app> | --quit-app <app> | --system-ui | --draw-target | --raise [user] |\n\
                  --hands <verb> ... | --type | --look <n> <out.jpg> | --step-screen |\n\
                  --guide-watch <json> <cancel> | --text <app> [title] | --calendar | --contacts |\n\
                  --profile-import | --notify <msg> | --speak <voice> <text> |\n\
-                 --restore-audio <snap> <pid> | --settings | --selftest"
+                 --restore-audio <snap> <pid> | --selftest"
             );
             Some(0)
         }

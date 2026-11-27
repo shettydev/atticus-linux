@@ -60,6 +60,7 @@ if [ -n "${ATTICUS_NO_RESTART:-}" ]; then
 fi
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
+  systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK 2>/dev/null || true
   systemctl --user daemon-reload
   systemctl --user enable --now atticus-inputd.service 2>/dev/null || true
   systemctl --user enable --now atticus.service 2>/dev/null || true
