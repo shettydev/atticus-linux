@@ -1,0 +1,7 @@
+{
+  "uuid": "atticus@atticus.app",
+  "name": "Atticus",
+  "description": "Lets the Atticus assistant arrange your windows, see where you point, and picture a window it works in. Talks only to Atticus on your session bus.",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "url": "https://github.com/shettydev/atticus-linux"
+}
