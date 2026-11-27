@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Atticus
+Comment=Hold the shortcut, say what you need, let go
+Exec=@PREFIX@/atticus-shell
+Icon=@PREFIX@/ui/icon.png
+Terminal=false
+Categories=Utility;Accessibility;
+StartupWMClass=atticus
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2

@@ -1,0 +1,2 @@
+# Lets the signed-in user's Atticus click and type through /dev/uinput (installed once by build-linux.sh, with sudo).
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

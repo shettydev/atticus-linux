@@ -7,5 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Linux shell dependencies (GTK, WebKitGTK, AT-SPI, GStreamer typelibs)
+        run: linux/packaging/deps.sh --ci
       - name: The one gate, same host-safe list as local ./check (Swift typecheck runs only on macOS)
         run: ./check --all

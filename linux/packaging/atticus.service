@@ -1,0 +1,14 @@
+# Installed by build-linux.sh into ~/.config/systemd/user/. Starts with the desktop session; restarts if it crashes (Quit stays quit).
+[Unit]
+Description=Atticus voice assistant
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=@PREFIX@/atticus-shell
+Restart=on-failure
+RestartSec=2
+StandardError=append:%h/.config/atticus/app.err
+
+[Install]
+WantedBy=graphical-session.target
