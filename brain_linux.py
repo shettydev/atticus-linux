@@ -5,8 +5,10 @@ definition, and this module rebinds the names in REPLACED and rewrites the macOS
 listed here either never touch macOS (PORTABLE) or reach it only through osa(), which is inert on Linux (VIA_OSA).
 tests/test_linux_seam_ratchet.py keeps the three tables complete.
 """
+import json
 import os
 import re
+import subprocess
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Prompt lines: (macOS text, Linux text). A pair whose macOS text drifted upstream is skipped, and the seam tests fail.
@@ -57,6 +59,42 @@ def osa(script, *args, timeout=60):
     return ''
 
 
+def image_size(path):
+    """(width, height) from a PNG or JPEG header: no sips on Linux, no Pillow needed."""
+    import struct
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(26)
+            if head[:8] == b'\x89PNG\r\n\x1a\n':
+                return struct.unpack('>II', head[16:24])
+            if head[:2] != b'\xff\xd8':
+                return None
+            f.seek(2)
+            while True:
+                marker = f.read(2)
+                if len(marker) < 2 or marker[0] != 0xff:
+                    return None
+                if marker[1] in (0xc0, 0xc1, 0xc2):
+                    f.read(3)
+                    h, w = struct.unpack('>HH', f.read(4))
+                    return w, h
+                (length,) = struct.unpack('>H', f.read(2))
+                f.seek(length - 2, 1)
+    except (OSError, struct.error):
+        return None
+
+
+def screens(visible=False):
+    """[(name, x, y, w, h, built_in)] from the shell's bridge (layout coordinates, like the macOS version)."""
+    import atticus
+    try:
+        r = subprocess.run([atticus.APP, '--bridge', 'screens'] + (['visible'] if visible else []), capture_output=True, text=True, timeout=5)
+        rows = json.loads(r.stdout or '[]')
+        return [(n, int(x), int(y), int(w), int(h), bool(b)) for n, x, y, w, h, b in rows if isinstance(n, str)]
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return []
+
+
 def _stub(name, task):
     def stub(*args, **kwargs):
         raise NotImplementedError(f'linux: {name} lands in {task}')
@@ -67,9 +105,9 @@ def _stub(name, task):
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
     'thumb': 'Task 24', 'preview_commands': 'Task 24', 'restore_focus': 'Task 24', 'request_screen': 'Task 24',
-    'placement_window': 'Task 24', 'screens': 'Task 24', 'front': 'Task 24', '_place': 'Task 24', 'keep_behind': 'Task 24',
+    'placement_window': 'Task 24', 'front': 'Task 24', '_place': 'Task 24', 'keep_behind': 'Task 24',
     'show': 'Task 24', 'installed_apps': 'Task 24', 'proc_of': 'Task 24', 'app_id': 'Task 24', 'app_running': 'Task 24',
-    'quit_app': 'Task 24', 'notify': 'Task 24', 'look': 'Task 18',
+    'quit_app': 'Task 24', 'notify': 'Task 24',
     'background_tab': 'Task 25', 'remember_background_tab': 'Task 25', 'browser_terms': 'Task 25', 'browser_adapter': 'Task 25',
     'close_agent_window': 'Task 25', 'work_page': 'Task 25', 'page_document': 'Task 25', 'work_tab_page': 'Task 25',
     'show_tab': 'Task 25', 'allow_page_js': 'Task 25', 'agent_window_id': 'Task 25',
@@ -78,7 +116,7 @@ STUBS = {
     'need': 'Task 36', 'automation_hint': 'Task 36',
 }
 
-REPLACED = {'osa': osa, **{name: _stub(name, task) for name, task in STUBS.items()}}
+REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{name: _stub(name, task) for name, task in STUBS.items()}}
 
 # Touch macOS words only to classify command text the model wrote; the same rules hold on Linux.
 PORTABLE = {

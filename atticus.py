@@ -3099,6 +3099,13 @@ def picture_window_path():
     return os.path.join(os.environ['ATTICUS_ASK'], 'picture-window.json')   # KeyError outside an ask: its pictures' spots stay plain
 
 
+def image_size(path):
+    """(width, height) of a picture file, or None."""
+    size = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', path], capture_output=True, text=True).stdout or ''
+    dims = re.findall(r'pixel(?:Width|Height): (\d+)', size)
+    return tuple(map(int, dims)) if len(dims) == 2 else None
+
+
 def look(cleanup=True, window=None, pointer=None):
     """Every display, 1280 px wide -> [(path, label)]. Standalone CLI callers remove their own files.
     window (a window_target): only its display, with that window painted where it sits, covered or not."""
@@ -3148,10 +3155,9 @@ def look(cleanup=True, window=None, pointer=None):
         mappings = {}
         for path, label in shots:
             n = int(re.search(r'Screen (\d+)', label)[1])
-            size = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', path], capture_output=True, text=True).stdout or ''
-            dims = re.findall(r'pixel(?:Width|Height): (\d+)', size)
-            if len(dims) == 2:
-                mappings[str(n)] = {'frame': list(scr[n-1][1:5]), 'pixels': list(map(int, dims)), 'name': scr[n-1][0]}
+            dims = image_size(path)
+            if dims:
+                mappings[str(n)] = {'frame': list(scr[n-1][1:5]), 'pixels': list(dims), 'name': scr[n-1][0]}
         snapshot = os.path.join(os.environ.get('ATTICUS_ASK', DIR), 'draw-screens.json')
         try:
             if not mappings: raise ValueError('No captured displays')

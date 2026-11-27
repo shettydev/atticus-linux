@@ -16,9 +16,9 @@ def pending(flag, task):
 
 
 HANDLERS = {
-    '--look': pending('--look', 'Task 18'),
-    '--step-screen': pending('--step-screen', 'Task 18'),
-    '--draw-target': pending('--draw-target', 'Task 18'),
+    '--look': lambda a: __import__('atticus_shell.bridge_cli', fromlist=['x']).look_command(a),
+    '--step-screen': lambda a: __import__('atticus_shell.bridge_cli', fromlist=['x']).step_screen_command(a),
+    '--draw-target': lambda a: __import__('atticus_shell.bridge_cli', fromlist=['x']).draw_target_command(a),
     '--text': pending('--text', 'Task 19'),
     '--window-target': pending('--window-target', 'Task 19'),
     '--target-app': pending('--target-app', 'Task 19'),
@@ -31,7 +31,7 @@ HANDLERS = {
     '--raise': ipc.cli_handler('Raise'),
     '--trigger': ipc.cli_handler('Trigger'),
     '--settings': ipc.cli_handler('OpenSettings'),
-    '--bridge': pending('--bridge', 'Task 24'),
+    '--bridge': lambda a: __import__('atticus_shell.bridge_cli', fromlist=['x']).bridge_command(a),
     '--selftest': lambda args: __import__('atticus_shell.speech.stt', fromlist=['selftest']).selftest(args),
 }
 
