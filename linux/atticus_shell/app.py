@@ -452,6 +452,18 @@ def main(env):
             app_box._ui('autoMinimize' if k == 'autoMinimize' else 'tiny', bool(v))
         if k == 'paused' and v:
             c.close(clear=False)
+        if k == '__update':
+            import threading
+            from atticus_shell.updater import NIX_HINT, Updater
+            def work():
+                u = Updater()
+                state = u.check()
+                text = {'nix': NIX_HINT, 'local changes': 'This copy of Atticus has local changes, so it does not update itself.',
+                        'offline': 'Could not reach the update server.', 'current': 'Atticus is up to date.'}.get(state)
+                if state == 'available':
+                    text = 'Updating Atticus… it restarts by itself.' if u.apply() else 'The update did not install. Run ./build-linux.sh in ~/.atticus.'
+                post(lambda: hooks.settings_window and hooks.settings_window.controller.notice(text))
+            threading.Thread(target=work, daemon=True).start()
         try:
             panel.refresh()
         except NameError:
