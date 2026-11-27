@@ -40,6 +40,11 @@ class ServiceTests(unittest.TestCase):
         self.s.handle('Trigger', ('dictate', 'down'))
         self.assertEqual(self.app.events, [('trigger', 'dictate', 'down')])
 
+    def test_press_edge_for_desktops_without_release_events(self):
+        self.s.handle('Trigger', ('talk', 'press'))
+        self.assertEqual(self.app.events, [('trigger', 'talk', 'press')])
+        self.assertEqual(ipc.cli_call(['talk', 'press'], 'Trigger'), ('Trigger', ('talk', 'press')))
+
     def test_trigger_rejects_unknown_names(self):
         for args in (('nope', 'down'), ('talk', 'sideways')):
             with self.assertRaises(ValueError):

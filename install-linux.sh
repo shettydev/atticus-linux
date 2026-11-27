@@ -5,13 +5,15 @@
 set -e
 DIR="${ATTICUS_DIR_SRC:-$HOME/.atticus}"
 REPO="${ATTICUS_REPO:-https://github.com/shettydev/atticus-linux.git}"
+BRANCH="${ATTICUS_BRANCH:-main}"
 echo "Installing Atticus…"
 [ "$(uname)" = Linux ] || { echo "This installer is for Linux. On a Mac use install.sh."; exit 1; }
 command -v git >/dev/null || { echo "Atticus needs git. Install it with your package manager, then paste the install line again."; exit 1; }
 if [ -d "$DIR/.git" ]; then
-  git -C "$DIR" pull -q --ff-only || { echo "Could not update $DIR. Delete that folder, then paste the install line again."; exit 1; }
+  git -C "$DIR" fetch -q origin "$BRANCH" && git -C "$DIR" checkout -q "$BRANCH" && git -C "$DIR" pull -q --ff-only origin "$BRANCH" ||
+    { echo "Could not update $DIR. Delete that folder, then paste the install line again."; exit 1; }
 else
-  git clone -q --depth 1 "$REPO" "$DIR"
+  git clone -q --branch "$BRANCH" "$REPO" "$DIR"
 fi
 "$DIR/linux/packaging/deps.sh"
 "$DIR/build-linux.sh"

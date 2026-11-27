@@ -18,7 +18,7 @@ XML = f'''<node><interface name="{IFACE}">
 </interface></node>'''
 SIGNATURES = {'Raise': '(b)', 'Trigger': '(ss)', 'Ping': None, 'HideOverlays': '(u)', 'BridgeEvent': '(s)', 'OpenSettings': None}
 TRIGGERS = ('talk', 'dictate', 'handoff', 'meeting')
-EDGES = ('down', 'up')
+EDGES = ('down', 'up', 'press')   # press: a shortcut that reports no release (a GNOME custom shortcut)
 MAX_HIDE_MS = 2000
 
 
@@ -33,7 +33,7 @@ class Service:
         elif method == 'Trigger':
             which, edge = args
             if which not in TRIGGERS or edge not in EDGES:
-                raise ValueError(f'Trigger takes {"|".join(TRIGGERS)} and down|up')
+                raise ValueError(f'Trigger takes {"|".join(TRIGGERS)} and down|up|press')
             self.app.trigger(which, edge)
         elif method == 'Ping':
             return (self.version,)
@@ -106,7 +106,7 @@ def cli_call(args, method):
         return method, (args[:1] == ['user'],)
     if method == 'Trigger':
         if len(args) != 2 or args[0] not in TRIGGERS or args[1] not in EDGES:
-            raise ValueError('usage: --trigger talk|dictate|handoff|meeting down|up')
+            raise ValueError('usage: --trigger talk|dictate|handoff|meeting down|up|press')
         return method, tuple(args)
     return method, ()
 

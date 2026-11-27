@@ -524,6 +524,16 @@ def main(env):
     dictate = _dictation(prefs, env, bridge, app_box, cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
 
     def edges(which, edge):
+        if edge == 'press':   # no release will come (a GNOME custom shortcut)
+            if which == 'dictate' and prefs.bool('dictate'):
+                was_idle = dictate.state == 'idle'
+                dictate.edge('down')          # first press starts, the next one inserts
+                if was_idle and dictate.state == 'listening':
+                    dictate.state = 'locked'  # hands-free until that next press
+                    dictate.ui('locked', True)
+                return
+            edges(which, 'down')
+            return edges(which, 'up')
         if which == 'dictate':
             if prefs.bool('dictate'):
                 dictate.edge(edge)
