@@ -27,7 +27,7 @@ HANDLERS = {
     '--hands': lambda a: __import__('atticus_shell.hands', fromlist=['x']).cli(a),
     '--guide-watch': lambda a: __import__('atticus_shell.hands', fromlist=['x']).guide_watch(a),
     '--type': lambda a: __import__('atticus_shell.insert', fromlist=['x']).type_command(a),
-    '--calendar': pending('--calendar', 'Task 32'),
+    '--calendar': lambda a: __import__('atticus_shell.calendar', fromlist=['x']).calendar_command(a),
     '--raise': ipc.cli_handler('Raise'),
     '--trigger': ipc.cli_handler('Trigger'),
     '--settings': ipc.cli_handler('OpenSettings'),
