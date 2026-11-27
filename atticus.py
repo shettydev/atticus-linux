@@ -1,5 +1,5 @@
 #!/bin/sh
-"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.expanduser('~/Library/Caches/Atticus');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
+"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.expanduser('~/Library/Caches/Atticus') if sys.platform=='darwin' else os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),'atticus');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
 """Atticus: a small Mac helper run by an AI client (Claude Code by default, Devin, or Pi). Idea from Caleb Writes Code's "Atticus".
 
 Hold Control+Option+Space (Atticus.app) -> talk -> let go. It answers questions (web, files, screen) and does
@@ -34,6 +34,13 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+
+def platform_name(environ=os.environ, system=sys.platform):
+    """'linux' or 'mac'. ATTICUS_PLATFORM overrides (the legacy test suite pins 'mac' on any host)."""
+    return environ.get('ATTICUS_PLATFORM') or ('linux' if system.startswith('linux') else 'mac')
+
+
+PLATFORM = platform_name()
 HOME = os.path.expanduser('~')
 DIR = os.environ.get('ATTICUS_DIR') or os.path.join(HOME, '.config/atticus')   # ATTICUS_DIR: tests keep off the user's chat and rules
 ME = os.path.abspath(__file__)   # inside Atticus.app once built, so the AI's helper commands point here
@@ -9641,6 +9648,11 @@ def main():
         Path(asked).write_text(time.strftime('%Y-%m-%d')); say('!', 'improve')
     if os.environ.get('ATTICUS_UI') != '1':   # typed from the menu bar: no overlay, so a notification
         osa('on run argv\ndisplay notification (item 1 of argv) with title "Atticus"\nend run', reply)
+
+
+if PLATFORM == 'linux':   # Linux replacements for the macOS-only functions above (brain_linux.py, installed beside this file)
+    import brain_linux
+    brain_linux.install(globals())
 
 
 def run_main():
