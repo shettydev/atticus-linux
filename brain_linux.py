@@ -993,8 +993,7 @@ def _stub(name, task):
 
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
-        'need': 'Task 36', 'automation_hint': 'Task 36',
-}
+    }
 
 REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{f.__name__: f for f in (
     thumb, preview_commands, restore_focus, request_screen, placement_window, front, _place, keep_behind, show, installed_apps,
