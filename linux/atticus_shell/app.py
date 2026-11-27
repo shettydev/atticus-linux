@@ -319,6 +319,17 @@ class AppHooks(B.NullSubsystem):
             self.settings_window = SettingsWindow(self.make_settings)
         self.settings_window.open(tab)
 
+    make_onboarding = None
+    onboarding_window = None
+
+    def onboarding_open(self):
+        if self.make_onboarding is None:
+            return
+        if self.onboarding_window is None:
+            from atticus_shell.onboarding import OnboardingWindow
+            self.onboarding_window = OnboardingWindow(self.make_onboarding)
+        self.onboarding_window.open()
+
     def menu_settings(self):
         self.settings_open()
 
@@ -454,6 +465,18 @@ def main(env):
                                                version=os.environ.get('ATTICUS_VERSION', ''), mics=audio.microphone_choices,
                                                speaker=lambda text: speaker.say(text, prefs.num('voiceRate') or 196))
     hooks.make_settings = make_settings
+    from atticus_shell import onboarding as ob
+
+    def make_onboarding(js, close):
+        folder = os.path.dirname(prefs.path)
+        notify = lambda text: post(lambda: js('ob.notice', {'text': text}))
+        ctl = ob.OnboardingController(js, prefs.d, prefs.set, ob.Probe(bridge, folder),
+                                      fix=lambda key: ob.fix_action(key, env, folder, notify, lambda: post(ctl.push)),
+                                      run=settings_mod.run_text, close=close, open_settings=hooks.settings_open, open_uri=hooks.open_uri)
+        return ctl
+    hooks.make_onboarding = make_onboarding
+    if not prefs.bool('onboarded'):
+        GLib.timeout_add(600, lambda: (hooks.onboarding_open(), False)[1])
     try:
         hooks.agents = agents_mod.AgentsUI(env, bridge, prefs.d, prefs.set, None)
     except Exception:
