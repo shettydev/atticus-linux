@@ -1,0 +1,9 @@
+{
+  "name": "com.atticus.browser_bridge",
+  "description": "Atticus Linux Browser Bridge Native Messaging Host",
+  "path": "@ATTICUS_BROWSER_HOST_BIN@",
+  "type": "stdio",
+  "allowed_extensions": [
+    "atticus-bridge@atticus.app"
+  ]
+}

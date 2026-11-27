@@ -9,3 +9,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: The one gate, same host-safe list as local ./check (Swift typecheck runs only on macOS)
         run: ./check --all
+      - name: Rust Linux host workspace tests
+        run: cargo test --manifest-path linux/Cargo.toml

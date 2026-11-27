@@ -1267,7 +1267,8 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
                 self.assertEqual((r.returncode, r.stdout, r.stderr), (plain.returncode, plain.stdout, plain.stderr))
             if args == ['--gate']: self.assertEqual(json.loads(r.stdout)['decision'], 'block')
             else: self.assertEqual(r.returncode, 2)
-        self.assertTrue(list((home / 'Library/Caches/Atticus').rglob('atticus.*.pyc')))
+        cache_dir = home / ('.cache/atticus' if sys.platform.startswith('linux') else 'Library/Caches/Atticus')
+        self.assertTrue(list(cache_dir.rglob('atticus.*.pyc')))
         self.assertFalse((app / '__pycache__').exists())   # never written inside the signed app
         hook = json.loads(Path(atticus.devin_config(str(home))).read_text())['hooks']['PreToolUse'][0]['hooks'][0]['command']
         self.assertTrue(hook.startswith(f'ATTICUS_CLIENT=devin /bin/sh "{atticus.ME}" --gate'))

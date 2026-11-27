@@ -1,0 +1,4 @@
+# Allows members of the `input` group to read evdev events and create virtual input devices via uinput
+# for Atticus global hotkeys (hold-to-talk, modifier dictation) on Wayland and X11.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", GROUP="input", MODE="0660"

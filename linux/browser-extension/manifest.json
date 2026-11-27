@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Atticus Browser Bridge",
+  "version": "2.0.2",
+  "description": "Connects Atticus on Linux to your signed-in browser tabs and background agent windows without remote debugging ports.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "atticus-bridge@atticus.app",
+      "strict_min_version": "115.0"
+    }
+  }
+}

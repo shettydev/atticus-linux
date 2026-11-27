@@ -359,7 +359,7 @@ function renderView(){const all=[...rows,...chatRows];if(!all.some(r=>r.id===sel
  const status=$('status');if(status.dataset.sig!==r.status+r.id){status.dataset.sig=r.status+r.id;status.className='status s-'+r.status;status.replaceChildren(el('i','dot'),el('span','',word(r)),el('span','time-label','· '+time(r)),el('span','time-label started','· Started '+begun(r)));}
  const live=ACTIVE.includes(r.status),files=things(r).some(m=>m.url.startsWith('/'));
  sync($('tools'),[['tools',JSON.stringify([r.id,r.status,files,!!r.directory]),()=>{const a=el('div','actions');a.append(rename(r));if(r.status==='offered')a.append(button('Start',()=>command('start',r.id),'go'));if(live)a.append(button([icon('stop'),'Stop'],()=>command('stop',r.id)));
-  if(r.directory){const b=button([icon('reveal')],()=>command('reveal',r.id),'ghost');b.title='Show in Finder';b.setAttribute('aria-label','Show in Finder');a.append(b);}return a;}]]);
+  if(r.directory){const label=window.atticusPlatform==='linux'?'Show in Files':'Show in Finder';const b=button([icon('reveal')],()=>command('reveal',r.id),'ghost');b.title=label;b.setAttribute('aria-label',label);a.append(b);}return a;}]]);
  setPlaceholder(r);const parts=[],g=groups(r),text=liveText.get(r.id);
  if(r.target)parts.push(['mini',r.id,()=>mini(r)]);   // a window agent's live window leads the page
  if(r.question)parts.push(['ask',JSON.stringify(r.question),()=>approval(r)]);

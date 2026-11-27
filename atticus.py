@@ -1,5 +1,5 @@
 #!/bin/sh
-"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.expanduser('~/Library/Caches/Atticus');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
+"exec" "python3" "-c" "import importlib.util as u,os,sys;sys.argv=sys.argv[1:];sys.path[0]=os.path.dirname(os.path.abspath(sys.argv[0]));sys.pycache_prefix=os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),'atticus') if os.environ.get('ATTICUS_PLATFORM',sys.platform).startswith('linux') else os.path.expanduser('~/Library/Caches/Atticus');s=u.spec_from_file_location('__main__',sys.argv[0]);m=sys.modules['__main__']=u.module_from_spec(s);s.loader.exec_module(m)" "$0" "$@"   # sh: run from cached bytecode (a plain run recompiles this file, ~70 ms per helper call); Python: a no-op string
 """Atticus: a small Mac helper run by an AI client (Claude Code by default, Devin, or Pi). Idea from Caleb Writes Code's "Atticus".
 
 Hold Control+Option+Space (Atticus.app) -> talk -> let go. It answers questions (web, files, screen) and does
@@ -33,6 +33,18 @@ from functools import lru_cache, wraps
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from atticus_platform import IS_LINUX, is_linux as _is_linux
+    from atticus_platform import linux as _linux
+except ImportError:
+    IS_LINUX = os.environ.get('ATTICUS_PLATFORM', sys.platform).lower().startswith('linux')
+    _is_linux = lambda: IS_LINUX
+    _linux = None
+
+
+def _on_linux():
+    return bool(IS_LINUX and _linux is not None)
 
 HOME = os.path.expanduser('~')
 DIR = os.environ.get('ATTICUS_DIR') or os.path.join(HOME, '.config/atticus')   # ATTICUS_DIR: tests keep off the user's chat and rules
@@ -326,6 +338,8 @@ def profile_forget_source(source, evidence=''):
 
 def mac_profile():
     """Read Contacts My Card and Mail accounts only when Settings explicitly invokes import."""
+    if _on_linux():
+        return _linux.profile_import_snapshot(APP)
     script = r'''function run() {
 function failed(e) { if(out.errors.indexOf(source)<0) out.errors.push(source); if(out.errorReasons[source]!=="automation") out.errorReasons[source]=Number(e.errorNumber || e.number)===-1743 ? "automation" : "read"; }
 function safe(f,d) { try { var v=f(); return v === null || v === undefined ? d : v; } catch(e) { failed(e); return d; } }
@@ -552,8 +566,9 @@ def local_servers():
     def probe(row):
         name, base, address = row
         try:
-            # macOS curl bounds the whole transfer and never uses proxies, redirects or user curl settings.
-            response = subprocess.run(['/usr/bin/curl', '-q', '--silent', '--fail', '--noproxy', '*',
+            # curl bounds the whole transfer and never uses proxies, redirects or user curl settings.
+            curl = _linux.curl_bin() if _on_linux() else '/usr/bin/curl'
+            response = subprocess.run([curl, '-q', '--silent', '--fail', '--noproxy', '*',
                                        '--max-time', '0.5', '--max-filesize', '1048576', address + '/v1/models'],
                                       capture_output=True, timeout=1)
             if response.returncode: return None
@@ -567,7 +582,7 @@ def local_servers():
 SHOT = '/tmp/atticus-screen'   # + -<n>.jpg, one per display
 os.environ['PATH'] = f"/opt/homebrew/bin:/usr/local/bin:{HOME}/.local/bin:{HOME}/.claude/local:/usr/bin:/bin:/usr/sbin:" + os.environ.get('PATH', '')
 INNER = bool(os.environ.get('ATTICUS_ASK'))   # started by the AI's own tool call, not by the user
-APP = os.environ.get('ATTICUS_APP') or os.path.join(HOME, 'Applications/Atticus.app/Contents/MacOS/Atticus')   # set by Atticus.app
+APP = os.environ.get('ATTICUS_APP') or (_linux.default_app_binary(ME) if _on_linux() else os.path.join(HOME, 'Applications/Atticus.app/Contents/MacOS/Atticus'))   # set by native host
 # Claude Code opens every registered plugin marketplace's folder at startup, even with --setting-sources ''; one kept in ~/Documents
 # made macOS ask for Documents access on a plain ask. Runs that load none of the user's plugins get an empty registry of their own.
 def no_plugins():
@@ -677,7 +692,7 @@ DRAWING += WALKTHROUGH
 
 
 # Full access: everything runs without asking, except these, which a misheard word must never trigger.
-DENIED = ('rm', 'rmdir', 'sudo', 'dd', 'diskutil', 'shutdown', 'reboot', 'halt', 'git push', 'srm')
+DENIED = ('rm', 'rmdir', 'sudo', 'dd', 'diskutil', 'mkfs', 'fdisk', 'parted', 'shutdown', 'reboot', 'halt', 'git push', 'srm')
 DENY = [f'Bash({c}:*)' for c in DENIED]
 
 def client():
@@ -688,7 +703,7 @@ def client():
 # Safe mode (Settings, on by default): the gate checks every command; background agents also use Claude Code's sandbox.
 # Main asks do not advertise that sandbox to the model: their gated helpers must open apps and sites normally.
 # A chain runs outside only if every part is listed, so harmless read-only tools are too ("…; curl wttr.in", "| head").
-SAFE_OUT = [f'{c} *' for c in ('osascript', 'open', 'mdfind', 'curl', 'head', 'tail', 'grep', 'sort', 'wc', 'echo', 'sleep', 'date', ME)] + ['pbpaste', 'date'] + [f'orca terminal {c} *' for c in ('list', 'read', 'send')]
+SAFE_OUT = [f'{c} *' for c in ('osascript', 'open', 'xdg-open', 'mdfind', 'fd', 'rg', 'curl', 'head', 'tail', 'grep', 'sort', 'wc', 'echo', 'sleep', 'date', ME)] + ['pbpaste', 'wl-paste', 'xclip', 'xsel', 'date'] + [f'orca terminal {c} *' for c in ('list', 'read', 'send')]
 # What the user must OK first. Matched per command, so `open "…?q=buy shoes"` or a search for "delete" never asks.
 RISKY = [('Delete something?', r'\b(rm|rmdir|srm|unlink|shred|trash|mv)\s|\bdelete\b|empty\s+(the\s+)?trash'),
          ('Send this?', r'\bsend\b|\bsendmail\b|curl\b.*\s((?-i:-[a-zA-Z]*X)\s*[\'"]?(POST|PUT|PATCH|DELETE)|--request[\s=]*[\'"]?(POST|PUT|PATCH|DELETE)|--data|--form|--json|--upload-file|(?-i:-[a-zA-Z]*[dFT]))'),
@@ -1201,7 +1216,9 @@ def set_switch(words, on):
 
 
 def thumb(path):
-    """A Quick Look thumbnail (images, PDFs, documents, videos) as a data URL, or '' if macOS has none."""
+    """A Quick Look / XDG thumbnail (images, PDFs, documents, videos) as a data URL, or '' if unavailable."""
+    if _on_linux():
+        return _linux.thumb(path, APP)
     out = tempfile.mkdtemp()   # one folder each: files with the same name must not share a thumbnail
     try:
         subprocess.run(['qlmanage', '-t', '-s', '480', '-o', out, path], capture_output=True, timeout=4)
@@ -1311,8 +1328,10 @@ def system_ui_context():
 
 def screens(visible=False):
     """[(name, x, y, w, h, built_in)], top-left coordinates like System Events uses; the first is the main one.
-    built_in comes from macOS itself, so laptop vs monitor works on any Mac, any number of displays.
-    visible: the part windows may use instead (below the menu bar, whose height differs on a notched screen, and beside the Dock)."""
+    built_in comes from the OS itself, so laptop vs monitor works on any machine, any number of displays.
+    visible: the part windows may use instead (excluding panels/docks/menu bars)."""
+    if _on_linux():
+        return _linux.screens(APP, visible=visible)
     f = 'visibleFrame' if visible else 'frame'
     out = subprocess.run(['osascript', '-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); ObjC.bindFunction("CGDisplayIsBuiltin", ["bool", ["unsigned int"]]); '
         f'var s=$.NSScreen.screens.js, H=s[0].frame.size.height; JSON.stringify(s.map(x=>[x.localizedName.js, x.{f}.origin.x, '
@@ -1342,6 +1361,8 @@ def describe(scr, fx=None, fy=None):
 
 
 def front():
+    if _on_linux():
+        return _linux.front_window(APP)
     # Atticus.app passes the app the user was in when the user pressed the keys (its own windows can take focus, e.g. onboarding).
     # Otherwise the native helper names the app in front, or the one under Atticus's own windows.
     app = os.environ.get('ATTICUS_FRONT')
@@ -1369,6 +1390,17 @@ def allow_focus(task):
 def restore_focus(app, task, cmds):
     if wants_focus(task) or re.search(r'\b(close|quit|exit)\b', task, re.I) or pref('workIn', 'back') == 'front':
         return
+    if _on_linux():
+        try:
+            now = subprocess.run([APP, '--user-app'], capture_output=True, text=True, timeout=2).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        try:
+            with open(WORKED) as f: worked = json.load(f).get('app', '') if os.path.getmtime(WORKED) >= TURN.get('_started', 0) else ''
+        except (OSError, ValueError, AttributeError): worked = ''
+        if not now or now == app or not (now.lower() in ' '.join(cmds).lower() or now == worked): return
+        _linux.focus_app(APP, app)
+        return
     try:
         frontmost = subprocess.run(['osascript', '-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); $.NSWorkspace.sharedWorkspace.frontmostApplication.localizedName.js'],
                                    capture_output=True, text=True, timeout=2)
@@ -1388,6 +1420,13 @@ def restore_focus(app, task, cmds):
 def request_screen():
     if os.environ.get('ATTICUS_SCREEN'): return os.environ['ATTICUS_SCREEN']
     app = os.environ.get('ATTICUS_FRONT') or front()[0]
+    if _on_linux():
+        tgt = window_target(app) if app else {}
+        frame = tgt.get('windowFrame')
+        if isinstance(frame, list) and len(frame) == 4:
+            x, y = int(frame[0]), int(frame[1])
+            return next((n for n, sx, sy, w, h, _ in screens() if sx <= x + 50 < sx + w and sy <= y + 50 < sy + h), 'current')
+        return 'current'
     try:
         x, y = map(int, osa(f'tell application "System Events" to tell process "{app}" to get position of window 1').split(', '))
         return next((n for n, sx, sy, w, h, _ in screens() if sx <= x + 50 < sx + w and sy <= y + 50 < sy + h), 'current')
@@ -1426,7 +1465,14 @@ SPACE_MOVE = threading.Lock()   # switching Spaces hides every other window on t
 
 
 def place(proc, where='full', screen='current', title=''):
-    """Place a window; full maximizes, fullscreen enters a native macOS Space."""
+    """Place a window; full maximizes, fullscreen enters native/WM fullscreen."""
+    if _on_linux():
+        if screen == 'current': screen = request_screen()
+        free_focus()
+        result = _linux.place_window(APP, proc, where, screen, title)
+        if not place_failed(result):
+            preview_app(proc, 'move', title)
+        return result
     held = []
     def space():   # a window that changes the Space holds it until that window is placed and checked (place_many moves windows at once)
         if not held: SPACE_MOVE.acquire(); held.append(1)
@@ -1613,6 +1659,13 @@ def keep_behind(mine, app, wait=1.5):
     never undo a switch to some other app the user made."""
     if not mine or not app or wants_focus() or pref('workIn', 'back') == 'front' or os.environ.get('ATTICUS_FOCUS_GUARD') == '1': return   # the native app watches late activations; don't hold every background open for 1.5 s
     names = {app.lower(), proc_of(app).lower()}
+    if _on_linux():
+        for _ in range(int(wait * 10)):
+            time.sleep(0.1)
+            now = front()[0]
+            if now and now != mine and now.lower() in names:
+                _linux.focus_app(APP, mine); return
+        return
     for _ in range(int(wait * 10)):   # some apps come forward late (Spotify, Chrome on a monitor)
         time.sleep(0.1)
         now = osa('tell application "System Events" to get name of first process whose frontmost is true')
@@ -1626,6 +1679,19 @@ def background_tab(url, app):
     try:
         with open(saved_path) as f: saved = json.load(f)
         adapter = browser_adapter(app)
+        if _on_linux() and adapter == 'webext':
+            if saved.get('app') != app or saved.get('adapter') != 'webext':
+                return False
+            window, tab = saved['window'], saved['tab']
+            if not all(isinstance(i, int) and i > 0 for i in (window, tab)) or not isinstance(saved.get('url'), str):
+                return False
+            if not _linux.browser_navigate_tab(DIR, window, tab, saved['url'], url):
+                return False
+            page = {'app': app, 'adapter': 'webext', 'window': window, 'tab': tab, 'target': None}
+            path = os.path.join(os.environ.get('ATTICUS_ASK', DIR), 'web.json')
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            private_json(path, page)
+            return True
         if saved.get('app') != app or saved.get('adapter') != adapter or adapter not in ('chromium', 'webkit'):
             return False
         window, tab = saved['window'], saved['tab']
@@ -1653,6 +1719,16 @@ def remember_background_tab(app):
     try:
         with open(page_path) as f: page = json.load(f)
         adapter, window, tab = page['adapter'], page['window'], page['tab']
+        if _on_linux() and adapter == 'webext':
+            info = _linux.browser_tab_info(DIR, window, tab)
+            url = (info or {}).get('url', '').strip()
+            if not url: return
+            saved = {'app': app, 'adapter': adapter, 'window': window, 'tab': tab, 'url': url}
+            os.makedirs(DIR, mode=0o700, exist_ok=True)
+            path = os.path.join(os.environ.get('ATTICUS_ASK', DIR) if os.environ.get('ATTICUS_AGENT') else DIR, 'background-page.json')
+            with open(path + '.tmp', 'w') as f: json.dump(saved, f)
+            os.chmod(path + '.tmp', 0o600); os.replace(path + '.tmp', path)
+            return
         quoted = app.replace('\\', '\\\\').replace('"', '\\"')
         target = f'first tab of window id {window} whose id is {tab}' if adapter == 'chromium' else f'tab {tab} of window id {window}'
         r = subprocess.run(['osascript', '-e', f'tell application "{quoted}" to get URL of {target}'],
@@ -1675,6 +1751,49 @@ def show(target, bg=False):
     if re.match(r'^https?://', t) and not agent_url_allowed(t): return agent_url_denial()
     if os.environ.get('ATTICUS_AGENT') and re.match(r'^https?://', t) and not (wants_focus() or pref('workIn', 'back') == 'front' and wants_focus(None, True)):
         return web('read', t)
+    if _on_linux():
+        mine = '' if bg and os.environ.get('ATTICUS_FOCUS_GUARD') == '1' else front()[0]
+        ahead = bg and pref('workIn', 'back') == 'front'
+        if bg:
+            browser = ''
+            if not ahead and re.match(r'^https?://', t):
+                browser = running_app(t)
+                if browser and background_tab(t, browser):
+                    status = web('wait', text=t, app=browser)
+                    remember_background_tab(browser)
+                    return f'opened {target} in the background' + (f'\n{status}' if status != 'Page ready.' else '')
+            ok, launched = _linux.launch_target(t, bg=not ahead)
+            if not ok:
+                return f'could not open {target}'
+            target_window = preview_app(launched or t, 'open')
+            if not ahead: keep_behind(mine, (target_window or {}).get('app') or launched or t)
+            if re.match(r'^https?://', t):
+                browser = ((target_window or {}).get('app', '') if isinstance(target_window, dict) else browser) or running_app(t)
+                status = web('wait', text=t, app=browser, fresh=True) if browser else 'Page readiness unavailable. Read the page before acting.'
+                if browser: remember_background_tab(browser)
+                where = 'in front' if ahead else 'in the background'
+                return f'opened {target} {where}' + (f'\n{status}' if status != 'Page ready.' else '')
+            return f'opened {target} ' + ('in front' if ahead else 'in the background')
+        if pref('openOn', 'here') == 'here':
+            free_focus(user=True)
+            ok, _ = _linux.launch_target(t, bg=False)
+            return f'opened {target} in front' if ok else f'no app or file called "{target}"'
+        ok, app = _linux.launch_target(t, bg=True)
+        if not ok:
+            return f'no app or file called "{target}"'
+        scr, other = screens(), None
+        if len(scr) > 1 and app and app != mine:
+            for _ in range(15):
+                if window_target(app): break
+                time.sleep(0.1)
+            mine_tgt = window_target(mine) if mine else {}
+            mx = int((mine_tgt.get('windowFrame') or [0])[0])
+            other = next((s[0] for s in scr if not s[1] <= mx + 50 < s[1] + s[3]), None)
+            if other and place_failed(place(app, 'center', other)):
+                other = None
+            if not wants_focus() and pref('workIn', 'back') != 'front' and mine:
+                _linux.focus_app(APP, mine)
+        return f'opened {target} in {app or "its app"}' + (f' on {other}' if other else '')
     # Reopening an active app can restore a different input after navigation inside it.
     active = False
     if not re.match(r'^[a-z]+:', t) and not os.path.exists(t):
@@ -1763,12 +1882,14 @@ def playlist(name):
     if hit() or fresh:
         return hit()   # rescan at most hourly: mid-speech checks call this on every word
     ids = set()   # not known yet: read every playlist id from the cache, name the new ones (once each, saved)
-    for root, _, files in os.walk(os.path.join(HOME, 'Library/Application Support/Spotify')):
-        for f in files:
-            try:
-                ids |= set(re.findall(rb'spotify:playlist:([A-Za-z0-9]{22})', Path(root, f).read_bytes()))
-            except OSError:
-                pass
+    cache_roots = _linux.spotify_cache_dirs() if _on_linux() else [os.path.join(HOME, 'Library/Application Support/Spotify')]
+    for cache_root in cache_roots:
+        for root, _, files in os.walk(cache_root):
+            for f in files:
+                try:
+                    ids |= set(re.findall(rb'spotify:playlist:([A-Za-z0-9]{22})', Path(root, f).read_bytes()))
+                except OSError:
+                    pass
     new = [i.decode() for i in ids if not names.get(i.decode()) and not i.startswith(b'37i9')]   # 37i9… = Spotify's own mixes
     def title(i):
         try:
@@ -1920,6 +2041,30 @@ def play(name, anything=True, credited=False):
     """Play the user's playlist by that name; else (anything=True) the top Spotify song, album or artist for it from the web."""
     p = spotify_item(name, anything, credited=credited)
     if not p: return None
+    if _on_linux():
+        mine = front()[0]
+        ok, err, named = _linux.spotify_play(p[0], p[1], APP)
+        if not ok:
+            report_error('play', stage='linux_mpris')
+            return f'Could not start {p[1]} in Spotify: {err}'
+        track = p[0].startswith('spotify:track:')
+        try:
+            with open(PLAYED) as f: saved = json.load(f)
+            saved = saved if isinstance(saved, dict) else {}
+        except (OSError, ValueError):
+            saved = {}
+        saved.pop(p[0], None)
+        saved[p[0]] = named if track and named[0] else (re.split(r'\s+[-–|]\s+', p[1], maxsplit=1) + [''])[:2]
+        try:
+            os.makedirs(DIR, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w', dir=DIR, delete=False) as f:
+                json.dump(dict(list(saved.items())[-500:]), f)
+            os.replace(f.name, PLAYED)
+        except OSError:
+            pass
+        preview_app('Spotify', 'play')
+        if not wants_focus(): keep_behind(mine, 'Spotify')
+        return f'Playing {on_spotify(p[1])}.'
     mine = osa('tell application "System Events" to get name of first process whose frontmost is true')
     # Play track on the track already loaded can toggle it, so that one resumes
     start = ('on run argv\nset wanted to item 1 of argv\ntell application "Spotify"\nset oldTrack to ""\ntry\nset oldTrack to id of current track\nend try\n'
@@ -2029,13 +2174,18 @@ def queue(name):
         kind = parts[1] if len(parts) == 3 else 'item'
         return (f'Spotify does not expose the tracks in that {kind} to Atticus, so it cannot queue them in order. '
                 'Name one song to add to the queue.')
-    mine = osa('tell application "System Events" to get name of first process whose frontmost is true')
-    try:
-        opened = subprocess.run(['open', '-g', p[0]], capture_output=True)
-    except OSError:
-        opened = None
-    if not opened or opened.returncode:
-        return f'Could not open {p[1]} in Spotify.'
+    mine = front()[0] if _on_linux() else osa('tell application "System Events" to get name of first process whose frontmost is true')
+    if _on_linux():
+        ok, _ = _linux.launch_target(p[0], bg=True)
+        if not ok:
+            return f'Could not open {p[1]} in Spotify.'
+    else:
+        try:
+            opened = subprocess.run(['open', '-g', p[0]], capture_output=True)
+        except OSError:
+            opened = None
+        if not opened or opened.returncode:
+            return f'Could not open {p[1]} in Spotify.'
     preview_app('Spotify', 'queue')
     keep_behind(mine, 'Spotify')
     m, more = _spotify_wait_control(('more', 'option'), p[1])
@@ -2076,6 +2226,8 @@ _APPS_CACHE = (0.0, set())
 
 def installed_apps():
     global _APPS_CACHE
+    if _on_linux():
+        return _linux.installed_apps()
     if _APPS_CACHE[0] and time.monotonic() - _APPS_CACHE[0] < 3600:
         return _APPS_CACHE[1]
     fallback = {f[:-4] for d in ('/Applications', '/System/Applications', '/System/Applications/Utilities', '/System/Library/CoreServices', HOME + '/Applications')
@@ -2141,21 +2293,29 @@ def app_heard(words):
 
 
 def proc_of(app):
-    """App name -> its System Events process name (Visual Studio Code runs as "Code")."""
+    """App name -> its process / WM class name (Visual Studio Code runs as "Code")."""
+    if _on_linux():
+        return _linux.proc_of(app)
     bid = osa(f'id of application "{osa_quote(app)}"')
     return osa(f'tell application "System Events" to get name of first process whose bundle identifier is "{osa_quote(bid)}"') or app
 
 
 def app_id(app):
+    if _on_linux():
+        return _linux.app_id(app)
     return osa(f'id of application "{osa_quote(app)}"')
 
 
 def app_running(bid):
+    if _on_linux():
+        return _linux.app_running(bid)
     return osa(f'tell application "System Events" to exists (first process whose bundle identifier is "{osa_quote(bid)}")') == 'true'
 
 
 def quit_app(bid):
-    """Quit and verify one running app by bundle id; a save dialog may keep it open."""
+    """Quit and verify one running app by bundle/desktop id; a save dialog may keep it open."""
+    if _on_linux():
+        return _linux.quit_app(bid, APP)
     if not app_running(bid):
         return True
     osa(f'tell application id "{osa_quote(bid)}" to quit', timeout=2)
@@ -2470,7 +2630,8 @@ def replay(k, swap=None):
                 else:
                     if ARRANGE.search(c): free_focus()
                     began = time.time()
-                    r = subprocess.run(['/bin/zsh', '-c', c], capture_output=True, text=True, timeout=20, env={**os.environ, 'ATTICUS_REQUEST': asked})
+                    shell = _linux.shell_bin() if _on_linux() else '/bin/zsh'
+                    r = subprocess.run([shell, '-c', c], capture_output=True, text=True, timeout=20, env={**os.environ, 'ATTICUS_REQUEST': asked})
                     replay.ran.append(f'{c[:200]}  => {(r.stdout.strip() or r.stderr.strip() or "exit " + str(r.returncode))[:200]} ({time.time() - began:.1f}s)')   # what each step said, and how long
                     if r.returncode or FAILED.search(r.stdout) or 'no window found' in r.stdout: return None   # a step that says it failed is a failure: the AI takes over
                     if tokens[0] == 'open' and len(tokens) in (3, 4) and tokens[1:-1] in (['-a'], ['-g', '-a']) and (bid := app_id(app_named(tokens[-1]) or tokens[-1])) and not app_up(bid):
@@ -3141,9 +3302,14 @@ def look(cleanup=True, window=None, pointer=None):
         mappings = {}
         for path, label in shots:
             n = int(re.search(r'Screen (\d+)', label)[1])
-            size = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', path], capture_output=True, text=True).stdout or ''
-            dims = re.findall(r'pixel(?:Width|Height): (\d+)', size)
-            if len(dims) == 2:
+            dims = None
+            if _on_linux():
+                dims = _linux.image_dimensions(path)
+            else:
+                size = subprocess.run(['sips', '-g', 'pixelWidth', '-g', 'pixelHeight', path], capture_output=True, text=True).stdout or ''
+                found_dims = re.findall(r'pixel(?:Width|Height): (\d+)', size)
+                dims = [int(d) for d in found_dims] if len(found_dims) == 2 else (_linux.image_dimensions(path) if _linux else None)
+            if dims and len(dims) == 2:
                 mappings[str(n)] = {'frame': list(scr[n-1][1:5]), 'pixels': list(map(int, dims)), 'name': scr[n-1][0]}
         snapshot = os.path.join(os.environ.get('ATTICUS_ASK', DIR), 'draw-screens.json')
         try:
@@ -3299,6 +3465,8 @@ def browser_terms(app, adapter, window=None, tab=None):
 
 def browser_adapter(app):
     """Return the page-JavaScript protocol an app actually answers, cached by bundle id."""
+    if _on_linux():
+        return _linux.browser_available(DIR, app)
     try:
         if subprocess.run(['pgrep', '-xq', app], capture_output=True, timeout=.3).returncode:
             return ''
@@ -3375,6 +3543,10 @@ def close_agent_window(directory):
         with open(path) as f: saved = json.load(f)
         os.remove(path)
         app, window = saved['app'], saved['window']
+        if _on_linux():
+            if type(window) is int and window > 0:
+                _linux.browser_close_window(DIR, window)
+            return
         if type(window) is not int or not isinstance(app, str) or subprocess.run(['pgrep', '-xq', app], timeout=.5).returncode: return
         quoted = app.replace('\\', '\\\\').replace('"', '\\"')
         subprocess.run(['osascript', '-e', f'tell application "{quoted}" to if exists window id {window} then close window id {window}'], capture_output=True, timeout=3)
@@ -3401,11 +3573,22 @@ def work_page(app='', words='', ask=''):
     adapter = used['adapter'] if reuse else browser_adapter(app)
     if not adapter:
         target = mapped if not words and mapped.get('app', '').casefold() == app.casefold() else {}
-        title = target.get('window', '') if target else osa(f'tell application "System Events" to tell process "{osa_quote(proc_of(app))}" to get name of front window', timeout=2)
+        if target:
+            title = target.get('window', '')
+        elif _on_linux():
+            title = (window_target(app) or {}).get('window', '')
+        else:
+            title = osa(f'tell application "System Events" to tell process "{osa_quote(proc_of(app))}" to get name of front window', timeout=2)
         try:   # the user's other windows of the app at ask time (native hands): the agent's hands stay out of them too
             with open(os.path.join(ask, 'hands.json.windows') if ask else hands_state() + '.windows') as f: windows = json.load(f)
         except (OSError, ValueError): windows = None
         return {'app': app, **({'target': target} if target else {}), **({'title': title} if title else {}), **({'windows': windows} if isinstance(windows, dict) else {})}
+    if _on_linux() and adapter == 'webext':
+        found = _linux.browser_find_tab(DIR, words=words, window_id=used['window'] if reuse else 0, tab_id=used['tab'] if reuse else 0)
+        if not found or not all(isinstance(found.get(k), int) and found[k] > 0 for k in ('window', 'tab')):
+            return {'app': app}
+        return {'app': app, 'adapter': 'webext', 'window': found['window'], 'tab': found['tab'],
+                'title': str(found.get('title', ''))[:200], 'url': str(found.get('url', ''))[:2000]}
     title, active, tab_id, pinned = (('title', 'active tab', 'id', 'first tab of w whose id is ((item 3 of argv) as integer)') if adapter == 'chromium' else
                                      ('name', 'current tab', 'index', 'tab ((item 3 of argv) as integer) of w'))
     row = f'return (id of w as text) & (ASCII character 9) & ({tab_id} of t as text) & (ASCII character 9) & {title} of t & (ASCII character 9) & URL of t'
@@ -3456,6 +3639,13 @@ def page_ready(read, want=''):
 
 def page_document(page):
     """(URL, document id) of a browser tab, or None; the id changes when a new document loads, never when the page changes its own URL."""
+    if _on_linux() and page.get('adapter') == 'webext':
+        try:
+            out = _linux.browser_exec_js(DIR, page['window'], page['tab'], 'location.href + "\\t" + performance.timeOrigin', timeout=2.0)
+            found = out.strip().split('\t')
+            return tuple(found) if len(found) == 2 and all(found) else None
+        except RuntimeError:
+            return None
     _, tell = browser_terms(page['app'], page['adapter'], page['window'], page['tab'])
     try: r = subprocess.run(['osascript', '-e', f'on run argv\n{tell}\nend run', 'location.href + "\\t" + performance.timeOrigin'], capture_output=True, text=True, timeout=2)
     except (OSError, subprocess.TimeoutExpired): return None
@@ -3488,6 +3678,12 @@ def work_tab_page(directory):
     try:
         with open(path) as f: tab = json.load(f)
         os.remove(path)
+        if _on_linux() and tab.get('adapter') == 'webext':
+            if not all(type(tab.get(k)) is int and tab[k] > 0 for k in ('window', 'tab')): return {}
+            info = _linux.browser_tab_info(DIR, tab['window'], tab['tab']) or {}
+            url, title = str(info.get('url', '')), str(info.get('title', ''))
+            if not re.match(r'https?://', url): return {}
+            return {'title': ' '.join(title.split())[:180], 'url': url[:2000], 'type': '', 'tab': tab}
         if not all(type(tab.get(k)) is int and tab[k] > 0 for k in ('window', 'tab')) or subprocess.run(['pgrep', '-xq', tab['app']], timeout=.5).returncode: return {}
         target = f'first tab of window id {tab["window"]} whose id is {tab["tab"]}' if tab['adapter'] == 'chromium' else f'tab {tab["tab"]} of window id {tab["window"]}'
         name = 'title' if tab['adapter'] == 'chromium' else 'name'
@@ -3503,6 +3699,9 @@ def show_tab(tab):
     """The user asked to see a task's browser window: that window comes to him with its tab selected, as it is, never reloaded.
     Only the browser's own ordering crosses Spaces when it is already the front app; accessibility cannot reach a window on another Space."""
     try:
+        if _on_linux() and tab.get('adapter') == 'webext':
+            _linux.browser_show_tab(DIR, tab['window'], tab['tab'])
+            return
         if tab.get('adapter') in ('chromium', 'webkit') and not subprocess.run(['pgrep', '-xq', tab['app']], timeout=.5).returncode:
             select = ('set k to 0\nrepeat with i from 1 to count tabs of w\nif id of tab i of w is ((item 1 of argv) as integer) then set k to i\nend repeat\n'
                       'if k > 0 then set active tab index of w to k\n' if tab['adapter'] == 'chromium' else 'set current tab of w to tab ((item 1 of argv) as integer) of w\n')
@@ -3532,8 +3731,26 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
             tab_id = 'id of t' if adapter == 'chromium' else 'index of t'
             selection = 'active tab index' if adapter == 'chromium' else 'current tab'
             own = agent_window(app) if os.environ.get('ATTICUS_AGENT') else 0
-            live = own and live_page(app, adapter, own, n)
-            if live: return web('read', app=app, want=n, page=live)
+            if own and live_page(app, adapter, own, n):
+                return web('read', app=app, want=n, page=live_page(app, adapter, own, n))
+            if _on_linux() and adapter == 'webext':
+                mine = front()[0] if os.environ.get('ATTICUS_AGENT') else ''
+                opened = _linux.browser_open_page(DIR, n, agent=bool(os.environ.get('ATTICUS_AGENT')), own_window=own)
+                if not opened or not all(isinstance(opened.get(k), int) and opened[k] > 0 for k in ('window', 'tab')):
+                    return 'Could not create a background page in an existing window. Requested page was not read.'
+                if opened.get('newWindow') and os.environ.get('ATTICUS_AGENT'):
+                    private_json(os.path.join(agent_gate_dir(os.environ['ATTICUS_ASK']), 'browser-window.json'), {'app': app, 'window': opened['window']})
+                    keep_behind(mine, app, wait=.5)
+                page = dict(app=app, adapter='webext', window=opened['window'], tab=opened['tab'], target=None)
+                status = web('wait', text=n, app=app, page=page)
+                if status != 'Page ready.': return status + '\nRequested page not ready; do not substitute another source.'
+                document = os.environ.get('ATTICUS_AGENT') and page_document(page)
+                if document: page.update(opened=n, document=document[1])
+                result = web('read', app=app, want=n, page=page)
+                directory = os.environ.get('ATTICUS_ASK', DIR)
+                os.makedirs(directory, mode=0o700, exist_ok=True)
+                private_json(os.path.join(directory, 'web.json'), page)
+                return result
             if os.environ.get('ATTICUS_AGENT'):   # the task's own window, reused for every page; the user's windows and tabs stay as they are
                 opened = ('set w to make new window\nset URL of active tab of w to item 1 of argv\nset t to active tab of w' if adapter == 'chromium' else
                           'make new document with properties {URL:item 1 of argv}\nset w to window 1\nset t to current tab of w')
@@ -3588,12 +3805,18 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
         if saved is None and not fresh and os.path.exists(path) and (cmd != 'read' or os.environ.get('ATTICUS_ASK')):
             with open(path) as f: saved = json.load(f)
         if not saved or saved.get('app') != app or saved.get('adapter') != adapter:
-            query, _ = browser_terms(app, adapter)
-            r = subprocess.run(['osascript', '-e', query], capture_output=True, text=True, timeout=5)
-            ids = r.stdout.strip().split('\t')
-            if r.returncode or len(ids) != 2 or not all(i.isdigit() for i in ids):
-                return f'Could not find a scriptable page window. Use {HANDS} see.'
-            saved = {'app': app, 'adapter': adapter, 'window': int(ids[0]), 'tab': int(ids[1]), 'target': None}
+            if _on_linux() and adapter == 'webext':
+                active = _linux.browser_active_tab(DIR, app)
+                if not active or not all(isinstance(active.get(k), int) and active[k] > 0 for k in ('window', 'tab')):
+                    return f'Could not find a scriptable page window. Use {HANDS} see.'
+                saved = {'app': app, 'adapter': 'webext', 'window': active['window'], 'tab': active['tab'], 'target': None}
+            else:
+                query, _ = browser_terms(app, adapter)
+                r = subprocess.run(['osascript', '-e', query], capture_output=True, text=True, timeout=5)
+                ids = r.stdout.strip().split('\t')
+                if r.returncode or len(ids) != 2 or not all(i.isdigit() for i in ids):
+                    return f'Could not find a scriptable page window. Use {HANDS} see.'
+                saved = {'app': app, 'adapter': adapter, 'window': int(ids[0]), 'tab': int(ids[1]), 'target': None}
             os.makedirs(os.path.dirname(path),mode=0o700,exist_ok=True)
             private_json(path, saved)
         if not all(isinstance(saved.get(k), int) and saved[k] > 0 for k in ('window', 'tab')):
@@ -3604,21 +3827,28 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
                 return f"That page is in the user's own window; agents only read it. To act on it, open its URL in this task's window: {WEB} read <url>"
             want = want or handed.get('url', '')   # the user's tab went to another site: never act on that one
         if cmd in ('read','wait') or not saved.get('target'):
-            r = subprocess.run(['osascript', '-e', f'tell application "{app}" to get {{name, bounds}} of window id {saved["window"]}'],capture_output=True,text=True,timeout=2)
-            parts = r.stdout.strip().rsplit(', ',4)
-            if r.returncode or len(parts) != 5: raise ValueError('Could not locate the pinned page window')
-            l,t,right,bottom = map(float,parts[1:])
-            saved['target'] = preview_app(app, cmd, title=parts[0], frame=[l,t,right-l,bottom-t])
+            if _on_linux() and adapter == 'webext':
+                info = _linux.browser_tab_info(DIR, saved['window'], saved['tab']) or {}
+                saved['target'] = preview_app(app, cmd, title=str(info.get('title', '')))
+            else:
+                r = subprocess.run(['osascript', '-e', f'tell application "{app}" to get {{name, bounds}} of window id {saved["window"]}'],capture_output=True,text=True,timeout=2)
+                parts = r.stdout.strip().rsplit(', ',4)
+                if r.returncode or len(parts) != 5: raise ValueError('Could not locate the pinned page window')
+                l,t,right,bottom = map(float,parts[1:])
+                saved['target'] = preview_app(app, cmd, title=parts[0], frame=[l,t,right-l,bottom-t])
             if cmd == 'read' and not n: hands_map(app, saved['target'])
             if page is None: private_json(path, saved)
-        _, tell = browser_terms(app, adapter, saved['window'], saved['tab'])
+        _, tell = (None, None) if (_on_linux() and adapter == 'webext') else browser_terms(app, adapter, saved['window'], saved['tab'])
         if isinstance(saved.get('target'), dict): emit(['▣ ' + json.dumps({**saved['target'], 'action':cmd})])
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         return f'Could not use the page: {e}\nUse the screen instead: {HANDS} see'
     with open(WEB_JS) as f:
         src = f.read()
     def js(c, expr=None, timeout=15, again=True):
-        r = subprocess.run(['osascript', '-e', f'on run argv\n{tell}\nend run', expr or f'({src})({json.dumps(c)}, {json.dumps(n)}, {json.dumps(text)})'],
+        code = expr or f'({src})({json.dumps(c)}, {json.dumps(n)}, {json.dumps(text)})'
+        if _on_linux() and adapter == 'webext':
+            return _linux.browser_exec_js(DIR, saved['window'], saved['tab'], code, timeout=timeout).strip()
+        r = subprocess.run(['osascript', '-e', f'on run argv\n{tell}\nend run', code],
                            capture_output=True, text=True, timeout=timeout)
         if again and 'turned off' in r.stderr and adapter == 'chromium' and allow_page_js(app, ask=True):
             return js(c, expr, timeout, False)
@@ -3680,7 +3910,9 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
 
 
 def allow_page_js(app, ask=False):
-    """Verify Chromium page scripting, enabling it after consent if needed."""
+    """Verify browser page scripting (Apple Events on macOS, WebExtension bridge on Linux)."""
+    if _on_linux():
+        return bool(_linux.browser_available(DIR, app))
     if ask and not pref('pageJS', False) and not pref('fixSetup', False):
         if not os.environ.get('ATTICUS_ASK') or ask_user({'need': 'page-js', 'app': app, 'q': f'I can turn on page reading in {app} for you',
                                                           'cmd': 'View > Developer > Allow JavaScript from Apple Events, kept on.'}, 60) != 'y':
@@ -4089,7 +4321,7 @@ def hands_command(text):
     elif text in ('page down', 'page up'):
         args = ['scroll', text.split()[1]]
     elif text == 'go back':
-        args = ['press', 'cmd+[']
+        args = ['press', 'alt+left' if _on_linux() else 'cmd+[']
     elif text in ('hit enter', 'hit return', 'escape', 'hit escape'):
         args = ['press', 'esc' if 'escape' in text else 'return']
     else:
@@ -4178,11 +4410,15 @@ def routine_label(row):
 
 
 def routine_job_path(identifier):
+    if _on_linux():
+        return _linux.routine_timer_path(DIR, identifier)
     root = os.path.join(DIR, 'launchagents') if os.environ.get('ATTICUS_DIR') else os.path.join(HOME, 'Library', 'LaunchAgents')
     return os.path.join(root, f'com.atticus.routine.{identifier}.plist')
 
 
 def routine_install(row):
+    if _on_linux():
+        return _linux.routine_install(DIR, ME, row)
     path = routine_job_path(row['id']); os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     job = {'Label': f"com.atticus.routine.{row['id']}", 'ProgramArguments': [sys.executable, ME, '--routine-fire', row['id']],
            'ProcessType': 'Background', 'StandardOutPath': '/dev/null', 'StandardErrorPath': '/dev/null'}
@@ -4209,6 +4445,8 @@ def routine_install(row):
 
 def routine_repair():
     """Replace weekday jobs written with the old Tuesday-Saturday values."""
+    if _on_linux():
+        return
     for row in routines():
         if row.get('kind') != 'time' or row.get('days') != 'weekdays': continue
         try:
@@ -4262,6 +4500,9 @@ def routine_remove(identifier):
         private_json(os.path.join(DIR, 'routines.json'), kept)
     finally:
         lock.close()
+    if _on_linux():
+        _linux.routine_remove(DIR, identifier)
+        return True
     path = routine_job_path(identifier)
     if not os.environ.get('ATTICUS_DIR'):
         subprocess.run(['/bin/launchctl', 'bootout', f'gui/{os.getuid()}', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -4305,10 +4546,13 @@ def routine_fire(identifier, now=None):
     finally:
         lock.close()
     if not os.environ.get('ATTICUS_DIR'):
-        wake = subprocess.run(['/bin/launchctl', 'kickstart', f'gui/{os.getuid()}/com.atticus.app'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if wake.returncode and subprocess.run(['/usr/bin/pgrep', '-f', APP], stdout=subprocess.DEVNULL).returncode:
-            bundle = APP.partition('/Contents/MacOS/')[0]
-            if bundle.endswith('.app'): subprocess.Popen(['/usr/bin/open', '-gj', bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if _on_linux():
+            _linux.routine_wake(APP)
+        else:
+            wake = subprocess.run(['/bin/launchctl', 'kickstart', f'gui/{os.getuid()}/com.atticus.app'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if wake.returncode and subprocess.run(['/usr/bin/pgrep', '-f', APP], stdout=subprocess.DEVNULL).returncode:
+                bundle = APP.partition('/Contents/MacOS/')[0]
+                if bundle.endswith('.app'): subprocess.Popen(['/usr/bin/open', '-gj', bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
 
 
@@ -4348,6 +4592,9 @@ BUDGET = {'usd': 0.002, 'secs': 6}   # median of the last 50 AI asks must stay u
 
 
 def notify(text):
+    if _on_linux():
+        _linux.notify(text, APP)
+        return
     osa('on run argv\ndisplay notification (item 1 of argv) with title "Atticus" sound name "Glass"\nend run', text)
 
 
@@ -6367,14 +6614,17 @@ def system_prompt(risky, model=None):
     """The Atticus system prompt: the shared helpers and reply protocol, plus this client's risky-action rule.
     model: the Claude model of a main ask. Sonnet or Opus draws inline; Haiku keeps quick asks small (Balanced hands drawing on, Cheapest keeps the tool)."""
     system = SYSTEM.replace('NEVER_RISKY', risky)
+    if _on_linux():
+        system = _linux.adapt_prompt(system, _linux.LINUX_SYSTEM_REPLACEMENTS + _linux.LINUX_NEVER_REPLACEMENTS)
     if pref('workIn', 'back') == 'front':
         system = system.replace('Work behind: never activate/raise unless asked to open/show/switch/focus.', 'Work in front: bring apps/pages forward only when not frontmost.').replace('pictures that window in place, even covered; raises only if asked.', 'to bring the working app forward.')
     if client() == 'claude' and not server():
         head, _, rest = system.partition('\n')
         system = head + '\n' + AGENT_HANDOFF + rest
+    wf = _linux.adapt_prompt(WORKFLOW, _linux.LINUX_WORKFLOW_REPLACEMENTS) if _on_linux() else WORKFLOW
     return (system + (ASK_ME if pref('askMe', True) else '') +
             ('' if not pref('draw', True) else DRAWING if client() == 'claude' and model and model != 'haiku' else '' if offers_model(model) else DRAW_TOOL) + (POINTER if pref('pointer', False) and not pref('draw', True) else '') + (LEARN_ME if pref('learnMe', True) else '') +
-            (TEACH if pref('tips', True) else '') + (WORKFLOW if pref('learn', True) else '') + (READ_ALOUD if pref('speak', True) else ''))
+            (TEACH if pref('tips', True) else '') + (wf if pref('learn', True) else '') + (READ_ALOUD if pref('speak', True) else ''))
 
 
 def start_ai(model=None, *, walkthrough=False):
@@ -8124,6 +8374,15 @@ def contact_matches(query, cards, own):
 
 
 def contacts(query):
+    if _on_linux():
+        try:
+            data = _linux.contacts_data(APP)
+            hits = contact_matches(query, data.get('cards', []), data.get('own', {}))
+            matches = [{'name': c.get('name', ''), 'emails': c.get('emails', []), 'phones': c.get('phones', [])} for c in hits]
+            return json.dumps({'matches': matches, 'ownCard': data.get('own', {}), 'profile': profile_context(query),
+                               'guidance': 'Use related names to resolve relationships, then look up that name. Profile facts are the user\'s own words and win over card values. Missing/ambiguous recipient: ask, never guess.'}, ensure_ascii=False)
+        except (OSError, ValueError):
+            return 'Contacts unavailable. Use the app address book or ask for the recipient.'
     script = r'''function run(argv) {
 var app = Application('Contacts'), people = app.people();
 function related(p) { return p.relatedNames().map(x=>({label:x.label(), value:x.value()})); }
@@ -8952,7 +9211,7 @@ def meeting_demo():
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
     for i, line in enumerate(lines):
-        child = subprocess.Popen(['say', '-v', ['Samantha', 'Daniel'][i % 2], '-r', '145', '--', line])
+        child = _linux.speak_demo_line(APP, i, line) if _on_linux() else subprocess.Popen(['say', '-v', ['Samantha', 'Daniel'][i % 2], '-r', '145', '--', line])
         child.wait()
         print(json.dumps({'ended': time.time(), 'line': line}), flush=True)
         time.sleep(8)
@@ -8962,10 +9221,14 @@ def feedback(data):
     model = pref('model', 'haiku')
     model = model if model in ('haiku', 'sonnet', 'opus') else 'custom'
     ai = f'Model: {model}\nRouting: {routing_mode()}\n' if client() == 'claude' else f'Model: set in the {client().capitalize()} CLI\n'
-    mac = subprocess.run(['/usr/sbin/sysctl', '-n', 'hw.model'], capture_output=True, text=True).stdout.strip()
+    if _on_linux():
+        sys_lines = _linux.feedback_system_lines()
+    else:
+        mac = subprocess.run(['/usr/sbin/sysctl', '-n', 'hw.model'], capture_output=True, text=True).stdout.strip()
+        sys_lines = f'macOS: {platform.mac_ver()[0]}\nMac model: {mac}\n'
     text = str(data.get('text', '')).strip()[:4000]   # what the user typed in Settings; they see it in the preview before it goes anywhere
     body = (f'## What happened\n\n{text}\n\n' if text else '## What happened\n\n\n## What you expected\n\n\n') + ('## Atticus\n'
-            f'Version: {APP_VERSION}\nVersion / commit: {str(data.get("version", "unknown"))[:80]}\nmacOS: {platform.mac_ver()[0]}\nMac model: {mac}\n'
+            f'Version: {APP_VERSION}\nVersion / commit: {str(data.get("version", "unknown"))[:80]}\n{sys_lines}'
             f'AI client: {client()}\n{ai}Safe mode: {"on" if pref("safe", True) else "off"}\n'
             f'Type right away: {"on" if pref("typeRight", True) else "off"}\n'
             f'Shortcut: {"toggle" if pref("talkMode", "hold") == "toggle" else "hold"}\n')
@@ -9153,15 +9416,22 @@ def main():
         if os.environ.get('ATTICUS_ASK') and not os.environ.get('ATTICUS_AGENT'):
             private_json(os.path.join(os.environ['ATTICUS_ASK'], 'focus-requested'), True)
         free_focus(user=True)
-        osa(f'tell application "{osa_quote(app)}" to activate')
-        if words:   # any app: the window whose title has the words; browsers: also that tab (fails quietly elsewhere). `contains` ignores case.
-            osa(f'on run argv\ntell application "System Events" to tell (first process whose name is "{osa_quote(proc_of(app))}")\n'
-                'perform action "AXRaise" of (first window whose name contains item 1 of argv)\nend tell\nend run', words)
-            set_tab = 'set current tab of w to t' if app == 'Safari' else 'set active tab index of w to i'
-            name = 'name' if app == 'Safari' else 'title'
-            osa(f'on run argv\ntell application "{osa_quote(app)}"\nrepeat with w in windows\nset i to 0\nrepeat with t in tabs of w\nset i to i + 1\n'
-                f'if ({name} of t contains item 1 of argv) or (URL of t contains item 1 of argv) then\n{set_tab}\nset index of w to 1\nreturn\n'
-                'end if\nend repeat\nend repeat\nend tell\nend run', words)
+        if _on_linux():
+            _linux.focus_app(APP, app)
+            if words and _linux.browser_available(DIR, app):
+                tab = _linux.browser_find_tab(DIR, words=words)
+                if tab and isinstance(tab.get('window'), int) and isinstance(tab.get('tab'), int):
+                    _linux.browser_show_tab(DIR, tab['window'], tab['tab'])
+        else:
+            osa(f'tell application "{osa_quote(app)}" to activate')
+            if words:   # any app: the window whose title has the words; browsers: also that tab (fails quietly elsewhere). `contains` ignores case.
+                osa(f'on run argv\ntell application "System Events" to tell (first process whose name is "{osa_quote(proc_of(app))}")\n'
+                    'perform action "AXRaise" of (first window whose name contains item 1 of argv)\nend tell\nend run', words)
+                set_tab = 'set current tab of w to t' if app == 'Safari' else 'set active tab index of w to i'
+                name = 'name' if app == 'Safari' else 'title'
+                osa(f'on run argv\ntell application "{osa_quote(app)}"\nrepeat with w in windows\nset i to 0\nrepeat with t in tabs of w\nset i to i + 1\n'
+                    f'if ({name} of t contains item 1 of argv) or (URL of t contains item 1 of argv) then\n{set_tab}\nset index of w to 1\nreturn\n'
+                    'end if\nend repeat\nend repeat\nend tell\nend run', words)
         time.sleep(0.5)   # the window draws before the picture
         return print('\n'.join(f'{label}: {path}' for path, label in look(cleanup=False)) or 'no screenshot: ' + need('screen', 'To see your screen for this task.'))
     if args[:1] == ['--type']:
@@ -9180,6 +9450,9 @@ def main():
         return print(show(' '.join(a for a in args[1:] if a != '--bg'), '--bg' in args[:2] or not wants_focus()))
     if args[:1] == ['--allow-js']:   # Setup → Turn on: the user's click is the OK
         app = ' '.join(args[1:]) or 'Google Chrome'
+        if _on_linux():
+            if allow_page_js(app): return print('on')
+            print('Install and enable the Atticus browser extension from linux/browser-extension to enable page reading.'); sys.exit(1)
         subprocess.run(['open', '-g', '-a', app])
         for _ in range(50):   # a launching browser has no menu bar yet, at most 5 s
             if allow_page_js(app): return print('on')

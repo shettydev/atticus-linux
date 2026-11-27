@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Atticus
+GenericName=Voice & AI Desktop Assistant
+Comment=Hold Ctrl+Alt+Space, say what you need, let go.
+Exec=@BIN_DIR@/atticus-host --settings
+Icon=atticus
+Terminal=false
+Categories=Utility;Accessibility;
+StartupNotify=false
+StartupWMClass=com.atticus.app

@@ -17,6 +17,8 @@
       targetSystems = [
         "aarch64-darwin"
         "x86_64-darwin"
+        "x86_64-linux"
+        "aarch64-linux"
       ];
       forEachSystem =
         f:
@@ -45,12 +47,18 @@
             src=${./.}
             case "''${1:-}" in
               ""|install|--install|build|--build)
-                exec bash "$src/build.sh"
+                if [ "$(uname -s)" = "Linux" ]; then
+                  exec bash "$src/build-linux.sh"
+                else
+                  exec bash "$src/build.sh"
+                fi
                 ;;
               --check)
                 python3 -c 'import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_text(), sys.argv[1], "exec")' "$src/atticus.py"
                 bash -n "$src/build.sh"
                 bash -n "$src/install.sh"
+                bash -n "$src/build-linux.sh"
+                bash -n "$src/install-linux.sh"
                 printf '%s\n' 'atticus source checks passed'
                 ;;
               --version)

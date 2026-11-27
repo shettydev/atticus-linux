@@ -1,0 +1,15 @@
+[Unit]
+Description=Atticus Linux Voice & AI Assistant
+After=graphical-session.target pipewire.service atticus-inputd.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Environment=ATTICUS_RESOURCES_DIR=@SHARE_DIR@
+Environment=ATTICUS_PLATFORM=linux
+ExecStart=@BIN_DIR@/atticus-host
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

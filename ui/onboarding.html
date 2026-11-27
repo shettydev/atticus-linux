@@ -668,12 +668,15 @@
   };
 
   const paintDone = s => {
-    const core = [['claude', 'AI provider'], ['ax', 'Accessibility'], ['mic', 'Microphone'], ['speech', 'Speech Recognition'], ['screen', 'Screen & System Audio Recording'], ['auto', 'System Events']], missing = core.filter(([id]) => !s[id]).map(([, name]) => name), voice = !!s.claude;
+    const core = (typeof window !== 'undefined' && window.atticusPlatform === 'linux')
+      ? [['claude', 'AI provider'], ['mic', 'Microphone'], ['speech', 'Local speech'], ['screen', 'Screen & input portal'], ['ax', 'Accessibility (AT-SPI)']]
+      : [['claude', 'AI provider'], ['ax', 'Accessibility'], ['mic', 'Microphone'], ['speech', 'Speech Recognition'], ['screen', 'Screen & System Audio Recording'], ['auto', 'System Events']];
+    const missing = core.filter(([id]) => !s[id]).map(([, name]) => name), voice = !!s.claude;
     $('done-title').textContent = !missing.length ? 'You’re all set' : voice ? 'AI is ready' : 'Setup isn’t finished yet'; $('done-status').className = missing.length ? 'warn' : '';
     $('done-sub').textContent = !missing.length ? (toggleMode ? 'Press' : 'Hold') + ' the shortcut anywhere.' : 'Still needed: ' + missing.join(', ') + '.';
     doneNext = voice ? 'Start Using Atticus' : 'Finish Setup Later';
   };
-  const capsOf = label => { const m = label.match(/^((?:fn|[⌃⌥⇧⌘])*)(.*)$/); return (m[1].match(/fn|./g) || []).concat(m[2] ? [m[2]] : []); };
+  const capsOf = label => !label ? [] : label.includes('+') ? label.split('+').filter(Boolean) : (m => (m[1].match(/fn|./g) || []).concat(m[2] ? [m[2]] : []))(label.match(/^((?:fn|[⌃⌥⇧⌘])*)(.*)$/));
 
   window.ob = {
     dictationBegin(id) {

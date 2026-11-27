@@ -331,7 +331,7 @@ $('selected').onclick=()=>{selectionContext=selection;$('ask').value='';$('ask')
 $('prep').ondragover=e=>{e.preventDefault();$('prep').classList.add('over')};
 $('prep').ondragleave=()=>$('prep').classList.remove('over');
 $('prep').ondrop=e=>{e.preventDefault();$('prep').classList.remove('over')};
-document.addEventListener('keydown',e=>{if(running&&e.key==='Enter'&&e.metaKey){e.preventDefault();post({do:'answerNow'});return}if(e.key==='Escape'){e.preventDefault();if(voicing){voice(false);return}if(document.activeElement===$('brief')){tab('answers');return}if(!running&&!$('prep').hidden){$('close').click();return}post({do:running?'stop':'delete'})}});
+document.addEventListener('keydown',e=>{if(running&&e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();post({do:'answerNow'});return}if(e.key==='Escape'){e.preventDefault();if(voicing){voice(false);return}if(document.activeElement===$('brief')){tab('answers');return}if(!running&&!$('prep').hidden){$('close').click();return}post({do:running?'stop':'delete'})}});
 
 function card(row){
   if(cards.has(row.id)){const d=cards.get(row.id),text=d.querySelector('.body>p');d.dataset.question=row.text;if(text)text.textContent=`“${row.text.length>180?row.text.slice(0,179)+'…':row.text}”`;return}
@@ -349,10 +349,12 @@ function card(row){
   while($('questions').children.length>4){$('older').append($('questions').firstElementChild);show('history',true)}
 }
 document.addEventListener('click',e=>{if(!e.target.closest('.attachment'))document.querySelectorAll('.attachment.expanded').forEach(b=>b.classList.remove('expanded'))});
+const thisDevice=window.atticusPlatform==='linux'?'this computer':'this Mac';
+if(window.atticusPlatform==='linux'){$('ask').placeholder='Ask anything, or Ctrl+↩ for what’s happening';}
 window.meeting={
   privacy(on){saving=on;this.mode()},
-  mode(m){if(m)for(const b of $('mode').children)b.setAttribute('aria-pressed',String(b.dataset.mode===m));document.querySelector('#prep h1').textContent=room()?'Get ready for your meeting':'Get ready for your call';$('notice').textContent=(room()?'Atticus hears the room through your microphone.':'Atticus hears this call and your microphone.')+' Transcripts stay on this Mac.'},
-  saving(on){saving=on;document.body.classList.toggle('saved',on);show('saving',running&&!minimized&&on);$('endnote').textContent=on?'Saved on this Mac.':'This transcript isn’t saved. Copy it before closing. Enable saving in Settings for future meetings.';$('delete').disabled=!on;$('restore').title=on?'Restore · Saving transcript':'Restore'},
+  mode(m){if(m)for(const b of $('mode').children)b.setAttribute('aria-pressed',String(b.dataset.mode===m));document.querySelector('#prep h1').textContent=room()?'Get ready for your meeting':'Get ready for your call';$('notice').textContent=(room()?'Atticus hears the room through your microphone.':'Atticus hears this call and your microphone.')+` Transcripts stay on ${thisDevice}.`},
+  saving(on){saving=on;document.body.classList.toggle('saved',on);show('saving',running&&!minimized&&on);$('endnote').textContent=on?`Saved on ${thisDevice}.`:'This transcript isn’t saved. Copy it before closing. Enable saving in Settings for future meetings.';$('delete').disabled=!on;$('restore').title=on?'Restore · Saving transcript':'Restore'},
   recap(m){$('recap').textContent=m.summary+(m.action_items?.length?'\n\nAction items\n'+m.action_items.map(s=>'• '+s).join('\n'):'');show('recap',!!m.summary);if(!running)fit()},
   settled(id){if(id!==viewTransition)return;document.body.classList.remove('transitioning');document.body.classList.add('revealing')},
   compact(on){if(!running)return;if(on)voice(false);minimized=on;show('notice',false);show('toast',false);document.body.classList.toggle('compact',on);view(on?'pillow':'live');if(!on)$('ask').focus()},

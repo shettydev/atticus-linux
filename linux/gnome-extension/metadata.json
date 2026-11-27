@@ -1,0 +1,7 @@
+{
+  "uuid": "atticus@atticus.app",
+  "name": "Atticus GNOME Helper",
+  "description": "Exposes window listing, placement, focus, and pointer coordinates to Atticus on GNOME Wayland via local session D-Bus.",
+  "shell-version": ["45", "46", "47", "48"],
+  "url": "https://github.com/SaarthurR/atticus-mac"
+}

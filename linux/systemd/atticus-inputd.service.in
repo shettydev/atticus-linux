@@ -1,0 +1,13 @@
+[Unit]
+Description=Atticus Global Hotkey & Input Daemon (evdev)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BIN_DIR@/atticus-inputd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

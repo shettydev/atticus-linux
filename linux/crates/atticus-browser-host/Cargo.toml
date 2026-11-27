@@ -1,0 +1,9 @@
+[package]
+name = "atticus-browser-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native Messaging bridge between Atticus MV3 browser extension and atticus.py"
+
+[dependencies]
+serde_json.workspace = true

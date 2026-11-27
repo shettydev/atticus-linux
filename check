@@ -49,8 +49,8 @@ trim() {   # unittest output -> failure blocks only
   printf '%s\n' "${b:-$(tail -20 <<<"$1")}"
 }
 
-show "$(python3 -m py_compile *.py tests/*.py 2>&1)"
-show "$(for f in build.sh install.sh check; do bash -n "$f"; done 2>&1)"
+show "$(python3 -m py_compile *.py atticus_platform/*.py tests/*.py 2>&1)"
+show "$(for f in build.sh install.sh build-linux.sh install-linux.sh check; do bash -n "$f"; done 2>&1)"
 if [ "$(uname)" = Darwin ] && command -v swiftc >/dev/null; then   # Linux swiftc has no Cocoa
   o=$(swiftc -typecheck Atticus.swift 2>&1) || show "$(grep -A2 'error:' <<<"$o" | head -40)"
 else

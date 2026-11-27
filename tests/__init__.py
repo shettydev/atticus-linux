@@ -6,6 +6,7 @@ import tempfile
 config = tempfile.TemporaryDirectory(prefix='atticus-test-config-')
 os.environ['ATTICUS_DIR'] = config.name
 os.environ['ATTICUS_POSTHOG_KEY'] = ''   # tests that clear os.environ also drop ATTICUS_DIR; with no key nothing reaches PostHog
+os.environ.setdefault('ATTICUS_PLATFORM', 'darwin')   # legacy unit tests mock macOS osascript/mdfind/launchctl; test_linux_platform.py exercises Linux explicitly
 atexit.register(config.cleanup)
 
 
@@ -52,7 +53,7 @@ if not os.environ.get('ATTICUS_VM') and not os.environ.get('ATTICUS_ALLOW_HOST_U
         first = args if isinstance(args, (str, bytes, os.PathLike)) else (args[0] if args else '')
         exe = os.path.realpath(str(first).split()[0]) if first else ''
         name = os.path.basename(exe)
-        if exe.startswith(_tmp) or name in ('osascript', 'open', 'Atticus', 'swift') or '/Atticus.app/' in exe:
+        if exe.startswith(_tmp) or name in ('osascript', 'open', 'Atticus', 'atticus-host', 'swift') or '/Atticus.app/' in exe:
             raise unittest.SkipTest(f'host guard: {name} runs only in the VM (run.sh)')
         _popen_init(self, args, *a, **k)
     subprocess.Popen.__init__ = _guarded

@@ -719,7 +719,7 @@
     if (e.key === 'Enter') $('find').querySelector('.row')?.click();
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!$('setq').value) $('setq').blur(); $('setq').value = ''; find(); }
   };
-  document.addEventListener('keydown', e => { if (e.metaKey && e.key.toLowerCase() === 'f' && !$('meetings').classList.contains('on')) { e.preventDefault(); openFind(); } });   // Meetings keeps ⌘F for its own search
+  document.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !$('meetings').classList.contains('on')) { e.preventDefault(); openFind(); } });   // Meetings keeps ⌘F/Ctrl+F for its own search
   const thumb = seg => {
     const b = seg.querySelector('button.on');
     if (!b || !seg.offsetWidth) { if (seg.classList.contains('placed')) seg.classList.remove('placed'); return; }   // hidden: placed again, without sliding, when it shows
@@ -768,8 +768,27 @@
   let connected = false;   // Enable All opens claude.ai's connectors page only when none is connected
   document.getElementById('enableAll').onclick = () => post({ do: 'enableAll', connected: String(connected) });
 
-  // Shortcut: Atticus.swift records the keys; the label is like "⌃⌥Space" (modifier symbols, then the key)
-  const capsOf = label => { const m = label.match(/^([⌃⌥⇧⌘]*)(.*)$/); return [...m[1]].concat(m[2] ? [m[2]] : []); };
+  // Shortcut: host records the keys; supports macOS "⌃⌥Space" and Linux "Ctrl+Alt+Space" labels
+  const isLinux = window.atticusPlatform === 'linux';
+  const defaultHotkey = window.atticusDefaultHotkey || (isLinux ? 'Ctrl+Alt+Space' : '⌃⌥Space');
+  if (isLinux) {
+    document.body.classList.add('linux');
+    document.querySelectorAll('nav button[data-p=apps]').forEach(b => b.hidden = true);
+    const sm = document.querySelector('.seg[data-k=speechModel]');
+    if (sm) {
+      const sb = sm.querySelector('[data-v=speech]'), db = sm.querySelector('[data-v=dictation]');
+      if (sb) { sb.dataset.v = 'streaming'; sb.textContent = 'Streaming'; }
+      if (db) db.hidden = true;
+    }
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode()); ) {
+      if (n.nodeValue.includes('this Mac')) n.nodeValue = n.nodeValue.replaceAll('this Mac', 'this computer');
+      if (n.nodeValue.includes('your Mac')) n.nodeValue = n.nodeValue.replaceAll('your Mac', 'your computer');
+      if (n.nodeValue.includes('⌃⌘V')) n.nodeValue = n.nodeValue.replaceAll('⌃⌘V', 'Ctrl+Super+V');
+      if (n.nodeValue.includes('Spotlight')) n.nodeValue = n.nodeValue.replaceAll('Spotlight', 'your app launcher');
+    }
+  }
+  const capsOf = label => !label ? [] : label.includes('+') ? label.split('+').filter(Boolean) : (m => [...m[1]].concat(m[2] ? [m[2]] : []))(label.match(/^([⌃⌥⇧⌘]*)(.*)$/));
   const showCaps = (label, hint) => $('caps').innerHTML = capsOf(label).map(c => `<i class="cap${c.length > 2 ? ' wide' : ''}">${c}</i>`).join('')
     + (hint ? `<span class="hint">${hint}</span>` : '');
   let recording = '';
@@ -831,7 +850,8 @@
   let W = null;   // last st.whisper status; the model select repaints from it with no round trip
   function paintWhisper() {
     const m = W?.models?.find(m => m.id === wid()), dl = m?.progress != null, btn = !W || W.installing ? '' : dl ? 'wcancel' : !W.server ? 'winstall' : !m?.have ? 'wdownload' : '';
-    const text = !W ? 'Checking…' : W.installing ? 'Installing whisper.cpp… You can keep using your Mac.' : dl ? `Downloading ${Math.round(m.progress * 100)}%…` : W.error || (!W.server ? 'Needs whisper.cpp.' : !m?.have ? 'Model not downloaded.' : 'Ready. Runs on this Mac.');
+    const hostNoun = isLinux ? 'your computer' : 'your Mac', thisHost = isLinux ? 'this computer' : 'this Mac';
+    const text = !W ? 'Checking…' : W.installing ? `Installing whisper.cpp… You can keep using ${hostNoun}.` : dl ? `Downloading ${Math.round(m.progress * 100)}%…` : W.error || (!W.server ? 'Needs whisper.cpp.' : !m?.have ? 'Model not downloaded.' : `Ready. Runs on ${thisHost}.`);
     if ($('wtext').textContent !== text) $('wtext').textContent = text;   // same text: no repeat announcement
     $('wtext').classList.toggle('wait', dl || !!W?.installing); $('wdot').classList.toggle('bad', !W || dl || !!W.error || !W.server || !m?.have);
     ['winstall', 'wdownload', 'wcancel'].forEach(b => $(b).hidden = b !== btn);
@@ -840,7 +860,7 @@
     if ($('wstoredb').dataset.key !== key) {
       $('wstoredb').dataset.key = key;
       $('wstoredb').replaceChildren(...stored.map(m => { const b = document.createElement('button'); b.className = 'btn red'; b.textContent = `Delete ${m.name} · ${m.size}`;
-        b.onclick = () => { if (P.speechModel === 'whisper' && m.id === wid()) set('speechModel', 'speech'); post({ do: 'whisperDelete', id: m.id }); };   // the talk key keeps working on Apple Speech
+        b.onclick = () => { if (P.speechModel === 'whisper' && m.id === wid()) set('speechModel', isLinux ? 'streaming' : 'speech'); post({ do: 'whisperDelete', id: m.id }); };   // fallback keeps talk key working
         return b; }));
     }
     $('wdownload').textContent = m?.size ? `Download ${m.size}` : 'Download';
@@ -850,7 +870,7 @@
     const devin = P.client === 'devin', pi = P.client === 'pi', other = devin || pi;
     if (!P.routing) P.routing = P.model && P.model !== 'haiku' ? 'capable' : P.escalate === false || P.escalateAuto === false ? 'cheapest' : 'balanced';
     if (!recording) showCaps(P.hotkeyLabel);
-    $('reset').style.display = P.hotkeyLabel === '⌃⌥Space' ? 'none' : '';
+    $('reset').style.display = P.hotkeyLabel === defaultHotkey ? 'none' : '';
     if (recording !== 'dictate') showKeys(P.dictateHotkeyLabel, 'Record Shortcut');
     $('dictateclear').hidden = !P.dictateHotkeyLabel || recording === 'dictate';
     $('dictatechange').classList.toggle('bad', dictateHotkeyTaken && recording !== 'dictate');
@@ -1115,7 +1135,7 @@
   $('meetingdelete').onclick=()=>{if(currentMeeting)post({do:'meetingDelete',id:currentMeeting.id})};   // native confirmation owns the deletion
   document.addEventListener('keydown',e=>{
     if(!$('meetings').classList.contains('on'))return;
-    if(e.metaKey&&e.key.toLowerCase()==='f'){e.preventDefault();if(currentMeeting)meetingBack(false);$('meetingq').focus();$('meetingq').select();return;}
+    if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();if(currentMeeting)meetingBack(false);$('meetingq').focus();$('meetingq').select();return;}
     if(e.key==='Escape'){e.preventDefault();if(currentMeeting)meetingBack();else if($('meetingq').value){$('meetingq').value='';requestMeetings();}else $('meetingq').blur();return;}
     if(currentMeeting||e.target.closest?.('textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
     if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();selectMeeting(selectedMeeting+(e.key==='ArrowDown'?1:-1),true);}
