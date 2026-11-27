@@ -308,6 +308,26 @@ class AppHooks(B.NullSubsystem):
         elif self.mini and 'miniClear' in b:
             self.mini.finish()
 
+    make_settings = None
+    settings_window = None
+
+    def settings_open(self, tab=''):
+        if self.make_settings is None:
+            return
+        if self.settings_window is None:
+            from atticus_shell.settings import SettingsWindow
+            self.settings_window = SettingsWindow(self.make_settings)
+        self.settings_window.open(tab)
+
+    def menu_settings(self):
+        self.settings_open()
+
+    def menu_feedback(self):
+        self.settings_open('feedback')
+
+    def settings_reveal(self, item):
+        self.settings_open('memory')
+
     def line_open_agents(self, ident):
         self.menu_agents()
 
@@ -393,7 +413,7 @@ def main(env):
             pass
 
         def open_settings(self):
-            pass
+            hooks.settings_open()
 
     if not ipc.serve(Shell()):
         ipc.call('Raise', (False,))
@@ -409,6 +429,31 @@ def main(env):
                   cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
     app_box.controller.voice = speaker
     hooks.mini = MiniCard(app_box._ui, bridge, prefs.d)
+    from atticus_shell import settings as settings_mod
+
+    def setting_changed(k, v):
+        c = app_box.controller
+        if k == 'safe':
+            app_box._ui('mode', bool(v))
+        if k in ('routing', 'model', 'client', 'apiBase', 'apiKey', 'apiModel', 'speak'):
+            c._unwarm()   # a worker started with the old choice must not answer
+        if k in ('autoMinimize', 'tinyFold'):
+            app_box._ui('autoMinimize' if k == 'autoMinimize' else 'tiny', bool(v))
+        if k == 'paused' and v:
+            c.close(clear=False)
+        try:
+            panel.refresh()
+        except NameError:
+            pass
+
+    def make_settings(js):
+        from atticus_shell import dictation, audio
+        data = dictation.DictationData(os.path.join(os.path.dirname(prefs.path), 'dictation.json'), prefs.d, prefs.set)
+        return settings_mod.SettingsController(js, prefs.d, prefs.set, data, settings_mod.run_text, hooks.open_uri, hooks.copy,
+                                               os.path.join(os.path.dirname(prefs.path), 'routines.json'), setting_changed,
+                                               version=os.environ.get('ATTICUS_VERSION', ''), mics=audio.microphone_choices,
+                                               speaker=lambda text: speaker.say(text, prefs.num('voiceRate') or 196))
+    hooks.make_settings = make_settings
     try:
         hooks.agents = agents_mod.AgentsUI(env, bridge, prefs.d, prefs.set, None)
     except Exception:
