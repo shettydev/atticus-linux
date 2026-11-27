@@ -11,3 +11,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+# An EWMH window manager for live X11 bridge tests (tests/linux/test_x11_live.py).
+RUN apt-get update && apt-get install -y --no-install-recommends openbox x11-utils && rm -rf /var/lib/apt/lists/*
