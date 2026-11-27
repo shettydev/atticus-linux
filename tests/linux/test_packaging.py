@@ -1,4 +1,6 @@
 import configparser
+import json
+import sys
 import os
 import shutil
 import subprocess
@@ -55,6 +57,29 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(build({'ATTICUS_VENV': str(venv.parent)}, self.root).returncode, 0)
         out = subprocess.run(['sh', f'{self.root}/share/atticus/atticus-shell', '--x'], capture_output=True, text=True, timeout=20)
         self.assertEqual(out.stdout.strip(), 'venv-python -m atticus_shell --x')
+
+    @unittest.skipUnless(shutil.which('openssl'), 'needs openssl')
+    def test_browser_extension_and_native_hosts_installed(self):
+        home = Path(self.root) / 'home'
+        r = build({'ATTICUS_BROWSER_HOME': str(home), 'ATTICUS_CONFIG': str(home / '.config/atticus')}, self.root)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        ext = Path(self.root) / 'share/atticus/browser-extension'
+        inject = (ext / 'web-inject.js').read_text()
+        self.assertTrue(inject.startswith('globalThis.__atticusWeb = ('))
+        manifest = json.loads((ext / 'manifest.json').read_text())
+        self.assertIn('key', manifest)
+        import base64
+        sys.path.insert(0, str(ROOT / 'linux'))
+        from atticus_shell.web_host import extension_id
+        ident = extension_id(base64.b64decode(manifest['key']))
+        chrome = json.loads((home / '.config/google-chrome/NativeMessagingHosts/app.atticus.web.json').read_text())
+        self.assertEqual(chrome['allowed_origins'], [f'chrome-extension://{ident}/'])
+        self.assertEqual(chrome['type'], 'stdio')
+        self.assertTrue(os.access(chrome['path'], os.X_OK))
+        firefox = json.loads((home / '.mozilla/native-messaging-hosts/app.atticus.web.json').read_text())
+        self.assertEqual(firefox['allowed_extensions'], ['atticus@atticus.app'])
+        again = build({'ATTICUS_BROWSER_HOME': str(home), 'ATTICUS_CONFIG': str(home / '.config/atticus')}, self.root)
+        self.assertEqual(json.loads((Path(self.root) / 'share/atticus/browser-extension/manifest.json').read_text())['key'], manifest['key'])   # same id after a rebuild
 
     def test_rebuild_replaces_previous_install(self):
         self.assertEqual(build({}, self.root).returncode, 0)

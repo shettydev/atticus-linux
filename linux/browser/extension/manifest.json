@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Atticus",
+  "version": "2.0.2",
+  "description": "Lets the Atticus assistant read and act on pages you ask it about, in your own signed-in browser. Talks only to Atticus on this computer.",
+  "permissions": ["nativeMessaging", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js", "scripts": ["background.js"]},
+  "browser_specific_settings": {"gecko": {"id": "atticus@atticus.app", "strict_min_version": "115.0"}}
+}

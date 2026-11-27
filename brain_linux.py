@@ -423,6 +423,303 @@ def launches_program(part):
     return any(map(atticus.runs_path, targets))
 
 
+# --- the browser, through the Atticus extension (atticus_shell.web_host) ----------------------------------------------------
+NO_EXTENSION = ('Install the Atticus browser extension once (Settings → Browser), then ask again. '
+                'Background reads never launch or focus a browser.')
+
+
+def _host(op, **args):
+    _shell_path()
+    from atticus_shell.web_host import call
+    return call(op, **args)
+
+
+def _browser():
+    hello = _host('hello') or {}
+    return hello.get('browser') or 'Browser'
+
+
+def browser_adapter(app):
+    try:
+        return 'extension' if _host('hello') else ''
+    except Exception:
+        return ''
+
+
+def browser_terms(app, adapter, window=None, tab=None):
+    return '', ''   # no AppleScript: pages are reached through the extension
+
+
+def allow_page_js(app, ask=False):
+    return True     # the extension's own permission covers it
+
+
+def page_document(page):
+    try:
+        v = _host('document', tab=page['tab'])
+    except Exception:
+        return None
+    return tuple(map(str, v)) if isinstance(v, list) and len(v) == 2 and all(v) else None
+
+
+def _gate(name):
+    import atticus
+    return os.path.join(atticus.agent_gate_dir(os.environ['ATTICUS_ASK']), name)
+
+
+def close_agent_window(directory):
+    import atticus
+    path = os.path.join(atticus.agent_gate_dir(directory), 'browser-window.json')
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        os.remove(path)
+        if type(saved.get('window')) is int:
+            _host('close_window', window=saved['window'])
+    except Exception:
+        pass
+
+
+def background_tab(url, app):
+    import atticus
+    saved_path = os.path.join(os.environ.get('ATTICUS_ASK', atticus.DIR) if os.environ.get('ATTICUS_AGENT') else atticus.DIR, 'background-page.json')
+    try:
+        with open(saved_path) as f:
+            saved = json.load(f)
+        if saved.get('adapter') != 'extension' or not all(type(saved.get(k)) is int for k in ('window', 'tab')):
+            return False
+        _host('navigate', tab=saved['tab'], expect=saved.get('url', ''), url=url)
+        page = {'app': app, 'adapter': 'extension', 'window': saved['window'], 'tab': saved['tab'], 'target': None}
+        path = os.path.join(os.environ.get('ATTICUS_ASK', atticus.DIR), 'web.json')
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        atticus.private_json(path, page)
+        return True
+    except Exception:
+        return False
+
+
+def remember_background_tab(app):
+    import atticus
+    try:
+        with open(os.path.join(os.environ.get('ATTICUS_ASK', atticus.DIR), 'web.json')) as f:
+            page = json.load(f)
+        url = (_host('tab', tab=page['tab']) or {}).get('url', '')
+        if not url:
+            return
+        path = os.path.join(os.environ.get('ATTICUS_ASK', atticus.DIR) if os.environ.get('ATTICUS_AGENT') else atticus.DIR, 'background-page.json')
+        atticus.private_json(path, {'app': app, 'adapter': 'extension', 'window': page['window'], 'tab': page['tab'], 'url': url})
+    except Exception:
+        pass
+
+
+def work_tab_page(directory):
+    import atticus
+    path = os.path.join(atticus.agent_gate_dir(directory), 'work-tab.json')
+    try:
+        with open(path) as f:
+            tab = json.load(f)
+        os.remove(path)
+        info = _host('tab', tab=tab['tab']) or {}
+        url = info.get('url', '')
+        if not re.match(r'https?://', url):
+            return {}
+        return {'title': ' '.join(info.get('title', '').split())[:180], 'url': url[:2000], 'type': '', 'tab': tab}
+    except Exception:
+        return {}
+
+
+def show_tab(tab):
+    try:
+        _host('focus', window=tab['window'], tab=tab['tab'])
+    except Exception:
+        pass
+
+
+def agent_window_id(app):
+    import atticus
+    if not app or not os.environ.get('ATTICUS_AGENT'):
+        return ''
+    handed = atticus.handed_page()
+    if str(handed.get('app', '')).casefold() == app.casefold() and isinstance(handed.get('target'), dict):
+        return str(handed['target'].get('windowID', '')) or None
+    window = atticus.agent_window(app) or (handed.get('window') if str(handed.get('app', '')).casefold() == app.casefold() and type(handed.get('window')) is int else 0)
+    if not window:
+        return ''
+    try:
+        b = _host('window', window=window)
+        r = subprocess.run([atticus.APP, '--window-target', app, '', json.dumps([b['left'], b['top'], b['width'], b['height']])],
+                           capture_output=True, text=True, timeout=2)
+        identifier = str(json.loads(r.stdout)['windowID'])
+        return identifier if identifier.isdigit() and int(identifier) > 0 else None
+    except Exception:
+        return None
+
+
+def work_page(app='', words='', ask=''):
+    """macOS's work_page, with the browser tab found through the extension."""
+    found = _MAC['work_page'](app, words, ask)
+    if found.get('tab') or not found.get('app') or browser_adapter(found['app']) != 'extension':
+        return found
+    try:
+        tabs = _host('tabs') or []
+    except Exception:
+        return found
+    used = {}
+    try:
+        with open(os.path.join(ask, 'web.json')) as f:
+            used = json.load(f)
+    except (OSError, ValueError):
+        pass
+    pick = (next((t for t in tabs if t['id'] == used.get('tab')), None) if used.get('adapter') == 'extension' and not words else None) or \
+        (next((t for t in tabs if words and (words.lower() in t['title'].lower() or words.lower() in t['url'].lower())), None) if words else None) or \
+        next((t for t in tabs if t['active'] and t.get('focused')), None)
+    if not pick:
+        return found
+    return {'app': found['app'], 'adapter': 'extension', 'window': pick['windowId'], 'tab': pick['id'], 'title': pick['title'][:200], 'url': pick['url'][:2000]}
+
+
+def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
+    """macOS's web() over the extension: read a page (numbered controls), click or fill by number, type after an anchor."""
+    import atticus as A
+    import urllib.parse
+    try:
+        browser = _browser()
+    except Exception:
+        return NO_EXTENSION
+    if cmd == 'read' and str(n).startswith(('http:', 'https:')):
+        try:
+            url = urllib.parse.urlsplit(n)
+            if not url.hostname or url.username or url.password:
+                return 'Use an HTTP(S) page URL without credentials.'
+        except ValueError:
+            return 'Use a valid HTTP(S) page URL.'
+        if not A.agent_url_allowed(n):
+            return A.agent_url_denial()
+        if A.pref('workIn', 'back') == 'front' and A.wants_focus(None, True):
+            status = A.show(n, bg=True)
+            if not status.startswith('opened '):
+                return status
+            return web('read', app=browser, want=n)
+        own = A.agent_window(browser) if os.environ.get('ATTICUS_AGENT') else 0
+        live = own and A.live_page(browser, 'extension', own, n)
+        if live:
+            return web('read', app=browser, want=n, page=live)
+        try:
+            if os.environ.get('ATTICUS_AGENT'):
+                r, made = (_host('open', url=n, window=own, active=True), '') if own else (_host('open', url=n, window='agent', active=False), 'new')
+            else:
+                r, made = _host('open', url=n, window='user', active=False), ''
+        except Exception:
+            return 'Could not create a background page in an existing window. Requested page was not read.'
+        if made:
+            A.private_json(_gate('browser-window.json'), {'app': browser, 'window': r['window']})
+        page = dict(app=browser, adapter='extension', window=r['window'], tab=r['tab'], target=None)
+        status = web('wait', text=n, app=browser, page=page)
+        if status != 'Page ready.':
+            return status + '\nRequested page not ready; do not substitute another source.'
+        document = os.environ.get('ATTICUS_AGENT') and page_document(page)
+        if document:
+            page.update(opened=n, document=document[1])
+        result = web('read', app=browser, want=n, page=page)
+        directory = os.environ.get('ATTICUS_ASK', A.DIR)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        A.private_json(os.path.join(directory, 'web.json'), page)
+        return result
+    path = os.path.join(os.environ.get('ATTICUS_ASK', A.DIR), 'web.json')
+    try:
+        saved = page
+        if saved is None and not fresh and os.path.exists(path) and (cmd != 'read' or os.environ.get('ATTICUS_ASK')):
+            with open(path) as f:
+                saved = json.load(f)
+        if not saved or saved.get('adapter') != 'extension':
+            tabs = _host('tabs') or []
+            t = next((t for t in tabs if t['active'] and t.get('focused')), None) or next((t for t in tabs if t['active']), None)
+            if not t:
+                return f'Could not find a scriptable page window. Use {A.HANDS} see.'
+            saved = {'app': browser, 'adapter': 'extension', 'window': t['windowId'], 'tab': t['id'], 'target': None}
+            os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+            A.private_json(path, saved)
+        if os.environ.get('ATTICUS_AGENT') and cmd in ('click', 'fill', 'type-after') and saved['window'] != A.agent_window(browser):
+            handed = A.handed_page()
+            if any(handed.get(k) != saved.get(k) for k in ('window', 'tab')):
+                return f"That page is in the user's own window; agents only read it. To act on it, open its URL in this task's window: {A.WEB} read <url>"
+            want = want or handed.get('url', '')
+        if cmd in ('read', 'wait') or not saved.get('target'):
+            try:
+                b = _host('window', window=saved['window'])
+                info = _host('tab', tab=saved['tab']) or {}
+                saved['target'] = A.preview_app(browser, cmd, title=info.get('title', ''), frame=[b['left'], b['top'], b['width'], b['height']])
+            except Exception:
+                saved['target'] = None
+            if cmd == 'read' and not n:
+                A.hands_map(browser, saved['target'])
+            if page is None:
+                A.private_json(path, saved)
+        if isinstance(saved.get('target'), dict):
+            A.emit(['▣ ' + json.dumps({**saved['target'], 'action': cmd})])
+    except Exception as e:
+        return f'Could not use the page: {e}\nUse the screen instead: {A.HANDS} see'
+
+    def js(c, timeout=15):
+        try:
+            v = _host('run', tab=saved['tab'], args=[c, n, text])
+        except Exception as e:
+            raise RuntimeError(str(e)[-300:] or 'the page did not answer')
+        return v if isinstance(v, str) else json.dumps(v)
+    try:
+        if cmd == 'wait':
+            return 'Page ready.' if A.page_ready(lambda timeout: js('ready', timeout=timeout), text) else 'Page still loading. Read again before acting.'
+
+        def same_source():
+            state = json.loads(js('ready'))
+            current = str(state.get('signature', '')).split('|')[0]
+            host = lambda u: (urllib.parse.urlsplit(u).hostname or '').removeprefix('www.')
+            return host(current) == host(want)
+        if want and not same_source():
+            return 'The browser is not on the requested source. Read it again before continuing.'
+        if cmd == 'click':
+            try:
+                c = json.loads(js('name'))
+            except ValueError:
+                c = None
+            if isinstance(c, dict):
+                if c.get('submit') or re.search(A.RISKY_CLICK, c.get('what', ''), re.I) and A.pref('safe', True):
+                    if not os.environ.get('ATTICUS_ASK'):
+                        return "This click needs the user's confirmation. Ask through Atticus, not a shortcut."
+                    if not A.task_allowed('web click'):
+                        answer = A.ask_user({'q': f'Click "{c["short"][:40]}"?', 'cmd': f'{browser}: click "{c["what"][:300]}"', 'task': A.managed_agent()}, 60)
+                        if answer == 'task' and A.managed_agent():
+                            A.allow_for_task('web click')
+                        elif answer != 'y':
+                            return 'The user said no. Do not try another way; say it was not done.'
+                if json.loads(js('name')) != c:
+                    return 'The control changed since the check. Read the page again.'
+            done = js('click')
+            if not done.startswith('Clicked'):
+                return done
+            A.remember_work_tab(saved)
+            try:
+                if not A.page_ready(lambda timeout: js('ready', timeout=timeout)):
+                    return done + '\nPage still loading. Read again before acting.'
+                return done + '\nChanged state:\n' + js('state')
+            except (RuntimeError, ValueError):
+                return done + '\nPage readiness unavailable. Read again before acting.'
+        result = js(cmd if cmd in ('read', 'fill', 'type-after') else 'read')
+        if want and not same_source():
+            return 'The page left the requested source during the read. Its content was not returned.'
+        if cmd == 'fill' and result.startswith('Filled'):
+            A.remember_work_tab(saved)
+            try:
+                if not A.page_ready(lambda timeout: js('ready', timeout=timeout)):
+                    return result + '\nPage still loading. Re-read values before claiming success.'
+                return result + '\nChanged state:\n' + js('state')
+            except (RuntimeError, ValueError):
+                return result + '\nChanged state unavailable. Re-read values before claiming success.'
+        return result
+    except (RuntimeError, ValueError) as e:
+        return f'Could not use the page: {e}\nUse the screen instead: {A.HANDS} see'
+
+
 def _stub(name, task):
     def stub(*args, **kwargs):
         raise NotImplementedError(f'linux: {name} lands in {task}')
@@ -432,17 +729,15 @@ def _stub(name, task):
 
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
-        'background_tab': 'Task 25', 'remember_background_tab': 'Task 25', 'browser_terms': 'Task 25', 'browser_adapter': 'Task 25',
-    'close_agent_window': 'Task 25', 'work_page': 'Task 25', 'page_document': 'Task 25', 'work_tab_page': 'Task 25',
-    'show_tab': 'Task 25', 'allow_page_js': 'Task 25', 'agent_window_id': 'Task 25',
-    'routine_job_path': 'Task 29', 'routine_install': 'Task 29', 'routine_remove': 'Task 29', 'routine_fire': 'Task 29',
+        'routine_job_path': 'Task 29', 'routine_install': 'Task 29', 'routine_remove': 'Task 29', 'routine_fire': 'Task 29',
     'mac_profile': 'Task 33', 'contacts': 'Task 33', 'playlist': 'Task 34', 'play': 'Task 34', 'queue': 'Task 34',
     'need': 'Task 36', 'automation_hint': 'Task 36',
 }
 
 REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{f.__name__: f for f in (
     thumb, preview_commands, restore_focus, request_screen, placement_window, front, _place, keep_behind, show, installed_apps,
-    proc_of, app_id, app_running, quit_app, notify, open_command, launches_program)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
+    proc_of, app_id, app_running, quit_app, notify, open_command, launches_program, background_tab, remember_background_tab, browser_terms,
+    browser_adapter, close_agent_window, work_page, page_document, work_tab_page, show_tab, allow_page_js, agent_window_id, web)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
 
 # Touch macOS words only to classify command text the model wrote; the same rules hold on Linux.
 PORTABLE = {
@@ -459,7 +754,6 @@ PORTABLE = {
 # Reach macOS only through osa() (inert on Linux) or through REPLACED helpers; their Linux branches land later.
 VIA_OSA = {
     'fast': 'Task 24 adds Linux instant verbs; its osascript branch returns nothing on Linux',
-    'web': 'Task 25 swaps the transport through browser_terms/browser_adapter/work_page',
     'relay': 'Task 15: pick/ask dialogs come from the box (ATTICUS_UI); osa() fallback is inert',
     'ask': 'Task 15: the typed pop-up is the box on Linux; osa() fallback is inert',
     'main': 'Task 24/27: notification and activate branches go through osa(); Linux uses notify()/show()',
@@ -482,5 +776,6 @@ def install(ns):
     ns['APP_DIRS'] = app_dirs(ns['HOME'])
     ns['NEEDS'] = dict(NEEDS)
     ns['APP'] = default_app(os.environ, ns['HOME'])
-    _MAC.setdefault('launches_program', ns['launches_program'])
+    for name in ('launches_program', 'work_page'):
+        _MAC.setdefault(name, ns[name])
     ns.update(REPLACED)

@@ -48,6 +48,10 @@ if ! mv "$APP" "$PREFIX"; then
   exit 1
 fi
 mkdir -p "$APPS" "$UNITS" ~/.config/atticus
+if command -v openssl >/dev/null; then   # the browser extension and its native messaging host (Settings → Browser shows how to load it)
+  "$PY" linux/packaging/browser_setup.py --prefix "$PREFIX" --home "${ATTICUS_BROWSER_HOME:-$HOME}" \
+    --config "${ATTICUS_CONFIG:-$HOME/.config/atticus}" --python "$PY" || echo "Note: the browser extension was not set up; web pages use the screen instead."
+fi
 sed "s|@PREFIX@|$PREFIX|g" linux/packaging/atticus.desktop > "$APPS/atticus.desktop"
 sed "s|@PREFIX@|$PREFIX|g" linux/packaging/atticus.service > "$UNITS/atticus.service"
 EXT=linux/atticus_shell/desktop/gnome-extension/atticus@atticus.app

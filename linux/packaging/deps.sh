@@ -10,17 +10,17 @@ pkgs() {
     apt) echo python3 python3-venv python3-pip python3-gi python3-gi-cairo python3-xlib python3-evdev gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
       gir1.2-gtklayershell-0.1 gir1.2-ayatanaappindicator3-0.1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
       gir1.2-ecal-2.0 gir1.2-ebook-1.2 gir1.2-secret-1 gstreamer1.0-plugins-good gstreamer1.0-pipewire at-spi2-core libglib2.0-bin \
-      tesseract-ocr wl-clipboard xclip bubblewrap pipewire-bin pulseaudio-utils git;;
+      tesseract-ocr wl-clipboard xclip bubblewrap openssl pipewire-bin pulseaudio-utils git;;
     dnf) echo python3 python3-gobject python3-xlib python3-evdev gtk3 webkit2gtk4.1 gtk-layer-shell libayatana-appindicator-gtk3 \
       at-spi2-core gstreamer1 gstreamer1-plugins-good pipewire-gstreamer evolution-data-server libsecret glib2 tesseract \
-      wl-clipboard xclip bubblewrap pipewire-utils pulseaudio-utils git;;
+      wl-clipboard xclip bubblewrap openssl pipewire-utils pulseaudio-utils git;;
     pacman) echo python python-gobject python-xlib python-evdev gtk3 webkit2gtk-4.1 gtk-layer-shell libayatana-appindicator \
       at-spi2-core gstreamer gst-plugins-good gst-plugin-pipewire evolution-data-server libsecret glib2 tesseract tesseract-data-eng \
-      wl-clipboard xclip bubblewrap pipewire libpulse git;;
+      wl-clipboard xclip bubblewrap openssl pipewire libpulse git;;
     zypper) echo python3 python3-gobject python3-gobject-cairo python3-python-xlib python3-evdev typelib-1_0-Gtk-3_0 \
       typelib-1_0-WebKit2-4_1 typelib-1_0-GtkLayerShell-0_1 typelib-1_0-AyatanaAppIndicator3-0_1 typelib-1_0-Atspi-2_0 \
       typelib-1_0-Gst-1_0 gstreamer-plugins-good pipewire-gstreamer typelib-1_0-ECal-2_0 typelib-1_0-EBook-1_2 typelib-1_0-Secret-1 \
-      glib2-tools tesseract-ocr wl-clipboard xclip bubblewrap pipewire-tools pulseaudio-utils git;;
+      glib2-tools tesseract-ocr wl-clipboard xclip bubblewrap openssl pipewire-tools pulseaudio-utils git;;
     *) return 1;;
   esac
 }
