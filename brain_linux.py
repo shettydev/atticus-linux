@@ -828,6 +828,86 @@ def routine_fire(identifier, now=None):
     return True
 
 
+# --- Spotify over MPRIS --------------------------------------------------------------------------------------------------
+MPRIS = ['--session', '--dest', 'org.mpris.MediaPlayer2.spotify', '--object-path', '/org/mpris/MediaPlayer2']
+
+
+def _gdbus(*args):
+    try:
+        return subprocess.run(['gdbus', 'call', *args], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return subprocess.CompletedProcess(args, 1, '', '')
+
+
+def _spotify_up():
+    r = _gdbus('--session', '--dest', 'org.freedesktop.DBus', '--object-path', '/org/freedesktop/DBus',
+               '--method', 'org.freedesktop.DBus.NameHasOwner', 'org.mpris.MediaPlayer2.spotify')
+    return 'true' in (r.stdout or '')
+
+
+def _spotify_prop(name):
+    r = _gdbus(*MPRIS, '--method', 'org.freedesktop.DBus.Properties.Get', 'org.mpris.MediaPlayer2.Player', name)
+    return r.stdout if r.returncode == 0 else ''
+
+
+def _spotify_now():
+    meta = _spotify_prop('Metadata')
+    track = re.search(r"'mpris:trackid': <'([^']*)'>", meta)
+    status = re.search(r"<'(\w+)'>", _spotify_prop('PlaybackStatus'))
+    return (status.group(1) if status else ''), (track.group(1) if track else '')
+
+
+def _same_track(uri, trackid):
+    """Spotify names tracks spotify:track:ID in old builds and /com/spotify/track/ID in new ones."""
+    return bool(trackid) and trackid.replace('/com/spotify/track/', 'spotify:track:') == uri
+
+
+def playlist(name):
+    """The macOS app reads Spotify's local playlist cache; on Linux playlists come from the web lookup instead."""
+    return None
+
+
+def play(name, anything=True, credited=False):
+    import time
+    import atticus
+    p = atticus.spotify_item(name, anything, credited=credited)
+    if not p:
+        return None
+    mine = front()[0]
+    if not _spotify_up():
+        a = _find('Spotify')
+        subprocess.run(['gtk-launch', a.id if a else 'spotify'], capture_output=True, timeout=10)
+        for _ in range(100):   # it takes a few seconds to start
+            if _spotify_up():
+                break
+            time.sleep(0.1)
+        else:
+            return f'Could not start {p[1]} in Spotify: Spotify did not open.'
+    _, old = _spotify_now()
+    track, ok, state = p[0].startswith('spotify:track:'), False, ''
+    for attempt in range(30):
+        if attempt in (0, 15):
+            if _gdbus(*MPRIS, '--method', 'org.mpris.MediaPlayer2.Player.OpenUri', p[0]).returncode:
+                return f'Could not start {p[1]} in Spotify: it did not take the request.'
+        time.sleep(0.1)
+        state, now = _spotify_now()
+        ok = state == 'Playing' and (_same_track(p[0], now) if track else now != old)
+        if ok:
+            break
+    if not ok:
+        atticus.report_error('play', stage='not_playing')
+        return f'Could not start {p[1]} in Spotify: ' + ('it kept playing another track.' if state == 'Playing' else 'playback did not reach the playing state.')
+    atticus.preview_app('Spotify', 'play')
+    if not atticus.wants_focus():
+        keep_behind(mine, 'Spotify')
+    return f'Playing {atticus.on_spotify(p[1])}.'
+
+
+def queue(name):
+    return ('Adding to Spotify’s queue isn’t on Linux yet: Spotify’s desktop app doesn’t offer its queue to other apps. '
+            'Say “play …” to start it now instead.')
+
+
 def _stub(name, task):
     def stub(*args, **kwargs):
         raise NotImplementedError(f'linux: {name} lands in {task}')
@@ -837,7 +917,7 @@ def _stub(name, task):
 
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
-        'mac_profile': 'Task 33', 'contacts': 'Task 33', 'playlist': 'Task 34', 'play': 'Task 34', 'queue': 'Task 34',
+        'mac_profile': 'Task 33', 'contacts': 'Task 33',
     'need': 'Task 36', 'automation_hint': 'Task 36',
 }
 
@@ -845,7 +925,7 @@ REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{f.__nam
     thumb, preview_commands, restore_focus, request_screen, placement_window, front, _place, keep_behind, show, installed_apps,
     proc_of, app_id, app_running, quit_app, notify, open_command, launches_program, background_tab, remember_background_tab, browser_terms,
     browser_adapter, close_agent_window, work_page, page_document, work_tab_page, show_tab, allow_page_js, agent_window_id, web,
-    routine_job_path, routine_install, routine_repair, routine_remove, routine_fire)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
+    routine_job_path, routine_install, routine_repair, routine_remove, routine_fire, playlist, play, queue)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
 
 # Touch macOS words only to classify command text the model wrote; the same rules hold on Linux.
 PORTABLE = {
