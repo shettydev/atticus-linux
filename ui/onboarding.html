@@ -2,7 +2,8 @@
 <html><head><meta charset="utf-8">
 <!-- Atticus first-run window, ten steps: welcome, AI, work model (Claude plans only), Mac access, try it, dictation, show me how, improve, tip and all set. Atticus.swift loads this (orbs.js goes in place of
      the marker), calls ob.set({...}) every second with which permissions are on, mirrors the box's calls into ob.app(call, arg),
-     and gets {do:'grant', id} / {do:'provider', ...} / {do:'done'} back. -->
+     and gets {do:'grant', id} / {do:'provider', ...} / {do:'done'} back. The Linux app (linux/atticus_shell/onboarding.py) also calls
+     ob.platform({os:'linux'}) for Linux words and ob.row({id, text, busy}) for a row's progress or what to do next. -->
 <style>
 /*TOKENS*/
   :root {
@@ -93,6 +94,7 @@
   .check circle { fill: var(--green); transform-origin: center; animation: pop var(--t-slow) var(--spring) both; }
   .check path { fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
     stroke-dasharray: 14; stroke-dashoffset: 14; animation: draw var(--t-slow) .15s var(--ease) forwards; }
+  .row .txt span.tell { color: var(--fg); }   /* what to do next, from the Linux app */
   .row.ok .allow { display: none; } .row.ok .check { display: block; margin: 0 21px; }
   #perms-done { height: 18px; margin-top: 12px; font: 500 13px system-ui; color: var(--ok-text); opacity: 0; transition: opacity var(--t-slow); }
   #perms-done.on { opacity: 1; }
@@ -573,6 +575,15 @@
     ['screen', 'Screen & System Audio Recording', 'Lets Atticus see your screen.', 'rgb(var(--purple-rgb))', '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>'],
     ['auto', 'System Events', 'Controls your apps for you.', 'rgb(var(--gray-39-rgb))', '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'],
   ];
+  // Linux: the same rows by the same keys, in Linux words (name, why, button). ob.platform swaps them in.
+  let linux = false;
+  const LINUX_ROWS = {
+    ax: ['Accessibility', 'Lets Atticus read and press buttons in your apps.', 'Turn On'],
+    mic: ['Microphone', 'Hears you while you hold the shortcut.', 'Check'],
+    speech: ['Speech model', 'Turns your words into text. One 300 MB download.', 'Download'],
+    screen: ['Desktop access', 'Lets Atticus see your screen and move windows.', 'Turn On'],
+    auto: ['Clicks and typing', 'Lets Atticus click and type in apps that need it.', 'Set Up'],
+  };
   $('list').innerHTML = P.map(([id, name, why, color, svg]) => `
     <div class="row" id="p-${id}">
       <div class="ic" style="background:${color}"><svg viewBox="0 0 24 24">${svg}</svg></div>
@@ -581,8 +592,8 @@
       <svg class="check" viewBox="0 0 22 22"><circle cx="11" cy="11" r="11"/><path d="M6.5 11.3l3 3 6-6.3"/></svg>
     </div>`).join('');
   const grant = (b, id) => {
-    const was = b.textContent; b.classList.add('wait'); b.textContent = 'Waiting';
-    setTimeout(() => { if (b.classList.contains('wait')) { b.classList.remove('wait'); b.textContent = was; } }, 12000);   // gave up in System Settings
+    const was = b.dataset.label || b.textContent; b.classList.add('wait'); b.textContent = 'Waiting';
+    setTimeout(() => { if (b.classList.contains('wait') && !b.dataset.busy) { b.classList.remove('wait'); b.textContent = was; } }, 12000);   // gave up in System Settings
     post({ do: 'grant', id });
   };
   document.querySelectorAll('.allow[data-id]').forEach(b => b.onclick = () => grant(b, b.dataset.id));
@@ -644,7 +655,7 @@
   // Try it: what stops a first ask, with the one click that fixes it.
   const paintBlock = () => {
     const s = last || {}, b = !planOK ? ['Atticus needs an AI before it can answer.', 'Pick One', () => go('ai')]
-      : !s.ax ? ['Atticus can’t click or type for you yet.', 'Allow', 'ax'] : null;
+      : !s.ax ? ['Atticus can’t click or type for you yet.', linux ? 'Turn On' : 'Allow', 'ax'] : null;
     $('block').hidden = !b || !last;
     if (!b) return;
     if ($('block-text').textContent !== b[0]) $('block-fix').classList.remove('wait');   // a new blocker gets a fresh button
@@ -668,14 +679,40 @@
   };
 
   const paintDone = s => {
-    const core = [['claude', 'AI provider'], ['ax', 'Accessibility'], ['mic', 'Microphone'], ['speech', 'Speech Recognition'], ['screen', 'Screen & System Audio Recording'], ['auto', 'System Events']], missing = core.filter(([id]) => !s[id]).map(([, name]) => name), voice = !!s.claude;
+    const core = [['claude', 'AI provider'], ['ax', 'Accessibility'], ['mic', 'Microphone'], ['speech', 'Speech Recognition'], ['screen', 'Screen & System Audio Recording'], ['auto', 'System Events']].map(([id, name]) => [id, P.find(p => p[0] === id)?.[1] ?? name]), missing = core.filter(([id]) => !s[id]).map(([, name]) => name), voice = !!s.claude;
     $('done-title').textContent = !missing.length ? 'You’re all set' : voice ? 'AI is ready' : 'Setup isn’t finished yet'; $('done-status').className = missing.length ? 'warn' : '';
     $('done-sub').textContent = !missing.length ? (toggleMode ? 'Press' : 'Hold') + ' the shortcut anywhere.' : 'Still needed: ' + missing.join(', ') + '.';
     doneNext = voice ? 'Start Using Atticus' : 'Finish Setup Later';
   };
-  const capsOf = label => { const m = label.match(/^((?:fn|[⌃⌥⇧⌘])*)(.*)$/); return (m[1].match(/fn|./g) || []).concat(m[2] ? [m[2]] : []); };
+  const capsOf = label => { if (/^[A-Za-z]\w*\+./.test(label)) return label.split('+').filter(Boolean); const m = label.match(/^((?:fn|[⌃⌥⇧⌘])*)(.*)$/); return (m[1].match(/fn|./g) || []).concat(m[2] ? [m[2]] : []); };
 
   window.ob = {
+    platform(p) {   // the Linux app: same steps, Linux words
+      if (p?.os !== 'linux' || linux) return;
+      linux = true; document.body.classList.add('linux');
+      document.querySelector('#perms h2').textContent = 'Set up Linux access';
+      document.querySelector('#perms .sub').textContent = 'Let Atticus hear you, see your screen and work in your apps.';
+      $('perms-note').textContent = 'If one click can’t finish a row, the row says what to do.';
+      $('perms-done').textContent = 'Linux access is ready.';
+      for (const [id, [name, why, button]] of Object.entries(LINUX_ROWS)) {
+        const row = $('p-' + id), entry = P.find(e => e[0] === id);
+        if (!row || !entry) continue;
+        entry[1] = name; row.querySelector('b').textContent = name;
+        const span = row.querySelector('.txt span'); span.textContent = span.dataset.why = why;
+        const b = row.querySelector('.allow'); b.dataset.label = button;
+        if (!b.classList.contains('wait')) b.textContent = button;
+      }
+      for (const span of document.querySelectorAll('#improve .txt span')) span.textContent = span.textContent.replace('leaves your Mac', 'leaves your computer');
+      if (last) ob.set(last);
+    },
+    row({ id, text = '', busy = false } = {}) {   // a row's progress (busy) or what to do next; '' puts its description back
+      const row = $('p-' + id); if (!row) return;
+      const b = row.querySelector('.allow'), span = row.querySelector('.txt span');
+      span.dataset.why ??= span.textContent;
+      if (busy) { b.classList.add('wait'); b.dataset.busy = '1'; b.textContent = text; return; }
+      delete b.dataset.busy; b.classList.remove('wait'); b.textContent = b.dataset.label || 'Allow';
+      span.textContent = text || span.dataset.why; span.classList.toggle('tell', !!text);
+    },
     dictationBegin(id) {
       const field = $('dictate-field');
       if (cur !== 'dictate' || document.activeElement !== field) return false;
@@ -757,7 +794,7 @@
       if ('model' in p) workModel = p.model === 'opus' || p.model === 'haiku' && p.agentModel === 'opus' ? 'opus' : 'sonnet';   // as Settings shows it
       paintModel();
       const key = p.dictateHotkeyLabel;
-      const reason = !key ? 'Choose a dictation shortcut in Settings.' : p.dictateHotkeyTaken ? 'This shortcut is in use by another app.' : p.globeTaken ? 'Set the Globe key to Do Nothing in Keyboard Settings.' : p.paused ? 'Atticus is paused.' : last && !last.ax ? 'Allow Accessibility on the Mac access page.' : '';
+      const reason = !key ? 'Choose a dictation shortcut in Settings.' : p.dictateHotkeyTaken ? 'This shortcut is in use by another app.' : p.globeTaken ? 'Set the Globe key to Do Nothing in Keyboard Settings.' : p.paused ? 'Atticus is paused.' : last && !last.ax ? (linux ? 'Turn on Accessibility on the Linux access page.' : 'Allow Accessibility on the Mac access page.') : '';
       $('dictate-talk').textContent = reason || 'Hold the keys and say anything.';
       if ($('dictatekeys').textContent !== (key || '')) $('dictatekeys').replaceChildren(...capsOf(key || '').map(c => Object.assign(document.createElement('div'), { className: c.length > 3 ? 'key wide' : 'key', textContent: c })));
       $('idea-dict').hidden = !key; $('idea-key').replaceChildren(...capsOf(key || '').map(c => Object.assign(document.createElement('kbd'), { textContent: c })));

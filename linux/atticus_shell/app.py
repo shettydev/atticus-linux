@@ -481,10 +481,12 @@ def main(env):
 
     def make_onboarding(js, close):
         folder = os.path.dirname(prefs.path)
-        notify = lambda text: post(lambda: js('ob.notice', {'text': text}))
-        ctl = ob.OnboardingController(js, prefs.d, prefs.set, ob.Probe(bridge, folder),
-                                      fix=lambda key: ob.fix_action(key, env, folder, notify, lambda: post(ctl.push)),
-                                      run=settings_mod.run_text, close=close, open_settings=hooks.settings_open, open_uri=hooks.open_uri)
+        probe = ob.Probe(bridge, folder, env=env)
+        row = lambda key, text='', busy=False: js('ob.row', {'id': key, 'text': text, 'busy': busy})
+        fixer = ob.Fixer(env, folder, probe, row=row, push=lambda: ctl.push(), post=post)
+        ctl = ob.OnboardingController(js, prefs.d, prefs.set, probe, fix=fixer.fix, run=settings_mod.run_text, close=close,
+                                      open_settings=hooks.settings_open, open_uri=hooks.open_uri,
+                                      hints=lambda: ob.hints(probe), busy=fixer.busy)
         return ctl
     hooks.make_onboarding = make_onboarding
     if not prefs.bool('onboarded'):

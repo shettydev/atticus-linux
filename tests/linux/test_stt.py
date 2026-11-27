@@ -183,6 +183,20 @@ class ModelStoreTests(unittest.TestCase):
         self.assertEqual(set(m), {'turbo', 'large', 'small'})
 
 
+class DownloadLockTests(unittest.TestCase):
+    def test_a_second_download_of_the_same_model_is_refused(self):
+        import fcntl
+        root = tempfile.mkdtemp()
+        m = S.SHERPA_MODELS['wake']
+        held = open(os.path.join(root, m.file + '.lock'), 'w')
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # another window is downloading it
+        self.addCleanup(held.close)
+        with self.assertRaises(S.ModelError) as e:
+            S.ModelStore(root, S.SHERPA_MODELS).ensure('wake')
+        self.assertIn('already downloading', str(e.exception))
+        self.assertFalse(os.path.exists(os.path.join(root, m.file + '.part')))
+
+
 if __name__ == '__main__':
     unittest.main()
 

@@ -310,6 +310,26 @@ class ModelStore:
         if os.path.exists(final):
             return final
         os.makedirs(self.root, mode=0o700, exist_ok=True)
+        import fcntl
+        lock_path = os.path.join(self.root, m.file + '.lock')
+        lock = open(lock_path, 'w')   # two downloads appending to one .part would corrupt it
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.close()
+            raise ModelError('This model is already downloading. Wait for it to finish.')
+        try:
+            return self._fetch(m, final, progress)
+        finally:
+            try:
+                os.unlink(lock_path)   # while still held, so nothing is left behind
+            except OSError:
+                pass
+            lock.close()
+
+    def _fetch(self, m, final, progress):
+        if os.path.exists(final):   # another download finished while this one waited for the lock
+            return final
         part = os.path.join(self.root, m.file + '.part')
         have = os.path.getsize(part) if os.path.exists(part) else 0
         req = urllib.request.Request(m.url, headers={'Range': f'bytes={have}-'} if have else {})

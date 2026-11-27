@@ -43,17 +43,16 @@ Run `./build-linux.sh` again after any change you make, or to update by hand.
 
 ## First run
 
-The setup window opens by itself. Its rows on Linux:
+The setup window opens by itself. Its **Set up Linux access** step has five rows. Click each row's button; if one
+click can't finish it, the row says what to do.
 
-| Row | What it checks | Fix |
+| Row | What it checks | Button |
 |---|---|---|
-| Accessibility | Assistive technologies are on (apps share their buttons and text) | Turns them on (`toolkit-accessibility`) |
-| Screen | The desktop bridge is loaded | GNOME: turns the extension on; then log out and in |
-| Automation / input | Atticus can click and type | Run `./build-linux.sh` again, enter your password, log out and in |
-| Microphone | A microphone exists | Pick it in Settings → Voice & Sound |
-| Speech | The speech model is downloaded | Downloads it (about 300 MB) |
-| Chrome | The browser extension is connected | Opens the extension folder (see below) |
-| Calendar | Evolution Data Server is available | Opens Online Accounts |
+| Accessibility | Assistive technologies are on, so apps share their buttons and text | **Turn On** switches them on |
+| Microphone | A microphone is connected | **Check** looks again |
+| Speech model | The speech model (runs on this computer) is downloaded and its engine is installed | **Download** fetches it (about 300 MB), with progress on the row |
+| Desktop access | The desktop bridge is loaded | **Turn On**: on GNOME it turns on the extension; then log out and back in |
+| Clicks and typing | Atticus can click and type (`/dev/uinput`, or an X11 session) | **Set Up** says whether to run `./build-linux.sh` again or log out and back in |
 
 **Shortcuts.** Talk: **Ctrl+Alt+Space** (hold to talk, or switch to press-to-toggle in Settings). Dictate: **Ctrl+Super+Space**.
 - GNOME 48+, KDE and Hyprland ask you to confirm them in a system dialog the first time.

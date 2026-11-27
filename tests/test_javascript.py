@@ -99,7 +99,7 @@ const ui={''' + dictate + '''};ui.dictate(true);if(bars.some(b=>b.style.height)|
         source = (Path(__file__).resolve().parents[1] / 'ui' / 'onboarding.html').read_text()
         helper = source[source.index('  const paintDone ='):source.index('\n  const capsOf', source.index('  const paintDone ='))]
         script = '''
-const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id)};let toggleMode=false,doneNext='';
+const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id)};let toggleMode=false,doneNext='';const P=[];
 ''' + helper + '''
 paintDone({claude:false,mic:true,speech:false,ax:false});
 if($('done-title').textContent!=='Setup isn’t finished yet'||!$('done-sub').textContent.includes('AI provider, Accessibility, Speech Recognition, Screen & System Audio Recording')||doneNext!=='Finish Setup Later')process.exit(1);
