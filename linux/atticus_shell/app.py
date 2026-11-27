@@ -260,6 +260,30 @@ class Box:
         self.view.set_size_request(int(width), int(height))
 
 
+class MiniCard:
+    """The mini screen card for the window a task works in: its app icon and title (frames stay on this computer and are
+    not streamed on Linux yet); a click brings that exact window forward."""
+
+    def __init__(self, ui, bridge, prefs):
+        self.ui, self.bridge, self.prefs, self.target = ui, bridge, prefs, None
+
+    def receive(self, value):
+        if not self.prefs.get('miniScreen', True) or not isinstance(value, dict):
+            return
+        self.target = value
+        self.ui('mini', {**value, 'shown': False, 'live': False})
+
+    def open(self):
+        from atticus_shell.desktop import ids
+        if self.target:
+            wid = ids.resolve(str(self.target.get('windowID', '')), [w.id for w in self.bridge.windows()])
+            if wid:
+                self.bridge.activate(wid)
+
+    def finish(self):
+        self.target = None
+
+
 class AppHooks(B.NullSubsystem):
     """What the box reaches through `app.*`: subsystems as they land; everything else accepted and ignored."""
     agents = None
@@ -271,6 +295,18 @@ class AppHooks(B.NullSubsystem):
     def menu_agents(self):
         if self.agents:
             self.agents.open_view()
+
+    mini = None
+
+    def line_mini(self, value):
+        if self.mini:
+            self.mini.receive(value)
+
+    def mini_message(self, b):
+        if self.mini and 'miniOpen' in b:
+            self.mini.open()
+        elif self.mini and 'miniClear' in b:
+            self.mini.finish()
 
     def line_open_agents(self, ident):
         self.menu_agents()
@@ -372,6 +408,7 @@ def main(env):
                   speak=lambda text: speaker.say(tts.read_aloud_text(text), prefs.num('voiceRate') or 196),
                   cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
     app_box.controller.voice = speaker
+    hooks.mini = MiniCard(app_box._ui, bridge, prefs.d)
     try:
         hooks.agents = agents_mod.AgentsUI(env, bridge, prefs.d, prefs.set, None)
     except Exception:
