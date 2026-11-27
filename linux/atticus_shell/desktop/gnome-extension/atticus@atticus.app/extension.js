@@ -1,10 +1,12 @@
 // Atticus bridge for GNOME Shell 46+: one D-Bus method, Call(method, json) -> json, on app.atticus.ShellBridge.
 // Wayland gives apps no way to move other windows, read the pointer or picture a covered window; the shell can.
+import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const IFACE = `<node><interface name="app.atticus.ShellBridge">
   <method name="Call"><arg type="s" name="method" direction="in"/><arg type="s" name="args" direction="in"/>
@@ -56,7 +58,74 @@ function writeTexture(texture, scale, path, done) {
     });
 }
 
+// Atticus's shortcuts, grabbed here because Wayland apps can't. A press sends Trigger(name, 'down') to Atticus; GNOME reports
+// no release for an accelerator, so the held modifiers are watched and their release sends 'up' (hold to talk).
+const MOD_MASKS = {'<Control>': [Clutter.ModifierType.CONTROL_MASK], '<Alt>': [Clutter.ModifierType.MOD1_MASK],
+    '<Shift>': [Clutter.ModifierType.SHIFT_MASK], '<Super>': [Clutter.ModifierType.SUPER_MASK, Clutter.ModifierType.MOD4_MASK]};
+const grabs = new Map();   // action -> {name, mods: [[mask, ...], ...]}
+let held = null, watch = 0;
+
+function trigger(name, edge) {
+    Gio.DBus.session.call('app.atticus.Shell', '/app/atticus/Shell', 'app.atticus.Shell', 'Trigger',
+        new GLib.Variant('(ss)', [name, edge]), null, Gio.DBusCallFlags.NO_AUTO_START, 2000, null, null);
+}
+
+function release() {
+    if (watch) GLib.source_remove(watch);
+    watch = 0;
+    if (held) trigger(held.name, 'up');
+    held = null;
+}
+
+function activated(action) {
+    const g = grabs.get(action);
+    if (!g || held) return;   // a held key repeats: one press is one 'down'
+    held = g;
+    trigger(g.name, 'down');
+    if (!g.mods.length) return release();
+    watch = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+        const mods = global.get_pointer()[2];
+        if (g.mods.every(alts => alts.some(m => mods & m))) return GLib.SOURCE_CONTINUE;
+        watch = 0;
+        release();
+        return GLib.SOURCE_REMOVE;
+    });
+}
+
+function ungrabAll() {
+    release();
+    for (const action of grabs.keys()) {
+        global.display.ungrab_accelerator(action);
+        Main.wm.allowKeybinding(Meta.external_binding_name_for_action(action), Shell.ActionMode.NONE);
+    }
+    grabs.clear();
+}
+
 const METHODS = {
+    bind_shortcuts: a => {   // {shortcuts: {talk: '<Control><Alt>space', ...}} -> {bound: {talk: true, ...}}; replaces earlier grabs
+        ungrabAll();
+        const bound = {};
+        const flags = Meta.KeyBindingFlags.IGNORE_AUTOREPEAT ?? Meta.KeyBindingFlags.NONE;
+        for (const [name, accel] of Object.entries(a.shortcuts || {})) {
+            const action = global.display.grab_accelerator(accel, flags);
+            bound[name] = action !== Meta.KeyBindingAction.NONE;
+            if (!bound[name]) continue;
+            Main.wm.allowKeybinding(Meta.external_binding_name_for_action(action), Shell.ActionMode.ALL);
+            grabs.set(action, {name, mods: (accel.match(/<\w+>/g) || []).map(m => MOD_MASKS[m]).filter(Boolean)});
+        }
+        return {ok: true, bound};
+    },
+    test_keys: (a, done) => {   // tests only (gnome-live.sh): press keys on a virtual keyboard, hold, release
+        if (GLib.getenv('ATTICUS_EXTENSION_TEST') !== '1') return done({ok: false, error: 'test only'});
+        const dev = Clutter.get_default_backend().get_default_seat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const keys = a.keys.map(k => Clutter[`KEY_${k}`]);
+        keys.forEach(k => dev.notify_keyval(GLib.get_monotonic_time(), k, Clutter.KeyState.PRESSED));
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, a.hold || 300, () => {
+            [...keys].reverse().forEach(k => dev.notify_keyval(GLib.get_monotonic_time(), k, Clutter.KeyState.RELEASED));
+            done({ok: true});
+            return GLib.SOURCE_REMOVE;
+        });
+    },
     windows: () => {
         const focus = global.display.get_focus_window();
         return normalWindows().map(w => {
@@ -100,7 +169,7 @@ const METHODS = {
         writeTexture(content.get_texture(), global.display.get_monitor_scale(w.get_monitor()), a.path, done);
     },
 };
-const ASYNC = new Set(['move_resize', 'screenshot_area', 'screenshot_window']);
+const ASYNC = new Set(['move_resize', 'screenshot_area', 'screenshot_window', 'test_keys']);
 
 export default class AtticusBridge extends Extension {
     enable() {
@@ -109,9 +178,12 @@ export default class AtticusBridge extends Extension {
         this._owner = Gio.bus_own_name_on_connection(Gio.DBus.session, 'app.atticus.ShellBridge', Gio.BusNameOwnerFlags.REPLACE, null, null);
         this._created = global.display.connect('window-created', (_d, w) => this._adopt(w));
         normalWindows().forEach(w => this._adopt(w));
+        this._accel = global.display.connect('accelerator-activated', (_d, action) => activated(action));
     }
 
     disable() {
+        ungrabAll();
+        global.display.disconnect(this._accel);
         global.display.disconnect(this._created);
         Gio.bus_unown_name(this._owner);
         this._dbus.unexport();

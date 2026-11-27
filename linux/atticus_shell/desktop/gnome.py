@@ -68,13 +68,24 @@ class GioBus:
 class GnomeBridge:
     covers_hidden = True   # window actors paint offscreen, covered or not
 
-    def __init__(self, bus=None, installed=extension_installed):
-        self.bus = bus or GioBus()
+    def __init__(self, bus=None, installed=extension_installed, now=None):
+        import time
+        self.bus, self.installed, self.now = bus or GioBus(), installed, now or time.monotonic
+        self.checked = None
+        self.available, self.unavailable_reason = False, ''
+        self._check()
+
+    def _check(self):
+        """The extension can load after Atticus starts (first login, a GNOME restart): look again, at most every 2 s."""
+        if self.available or (self.checked is not None and self.now() - self.checked < 2):
+            return self.available
+        self.checked = self.now()
         self.available = bool(self.bus.name_owned())
-        self.unavailable_reason = '' if self.available else (RELOGIN if installed() else TURN_ON)
+        self.unavailable_reason = '' if self.available else (RELOGIN if self.installed() else TURN_ON)
+        return self.available
 
     def _call(self, method, **args):
-        if not self.available:
+        if not self._check():
             return None
         try:
             return self.bus.call(method, args)

@@ -54,19 +54,19 @@ click can't finish it, the row says what to do.
 | Desktop access | The desktop bridge is loaded | **Turn On**: on GNOME it turns on the extension; then log out and back in |
 | Clicks and typing | Atticus can click and type (`/dev/uinput`, or an X11 session) | **Set Up** says whether to run `./build-linux.sh` again or log out and back in |
 
-**Shortcuts.** Talk: **Ctrl+Alt+Space** (hold to talk, or switch to press-to-toggle in Settings). Dictate: **Ctrl+Super+Space**.
-- GNOME 48+, KDE and Hyprland ask you to confirm them in a system dialog the first time.
-- X11 sessions grab them directly.
-- GNOME 46/47 on Wayland (Ubuntu 24.04): GNOME has no shortcut portal before 48, so set Atticus to
-  **Press to toggle** (Settings → General → Shortcut behavior) and add a custom shortcut in GNOME Settings → Keyboard →
-  Custom Shortcuts: command `~/.local/share/atticus/atticus-shell --trigger talk press`, keys Ctrl+Alt+Space.
-  Press once to start, once more to send. For dictation, add another with `--trigger dictate press`.
-- Sway: add these lines to your config:
+**Shortcuts.** Talk: hold **Ctrl+Alt+Space**, speak, let go (or switch to press-to-toggle in Settings). Dictate:
+**Ctrl+Super+Space**. Atticus sets them up itself, the way each desktop allows:
 
-  ```
-  bindsym --no-repeat Ctrl+Mod1+space exec ~/.local/share/atticus/atticus-shell --trigger talk down
-  bindsym --release Ctrl+Mod1+space exec ~/.local/share/atticus/atticus-shell --trigger talk up
-  ```
+| Desktop | How |
+|---|---|
+| GNOME 46 to 50 | The Atticus GNOME extension grabs the keys. No dialog. Needs the one logout after installing. |
+| Hyprland, Sway | Atticus adds `bind`/`bindr` (Hyprland) or `bindsym` (Sway) lines to the running session. It never takes a key you already use; it tells you instead. |
+| KDE Plasma | KDE asks you to confirm the shortcuts once. |
+| X11 | Atticus grabs the keys directly. |
+
+If a shortcut can't be set, you get a notification saying why. `~/.local/share/atticus/atticus-shell --doctor` shows
+what's working. On any desktop you can also add a system keyboard shortcut that runs
+`~/.local/share/atticus/atticus-shell --trigger talk press` (press once to talk, again to send).
 
 ## Browser
 
@@ -108,6 +108,14 @@ Everything that's left is listed with its reasons in the port plan, `docs/superp
 
 ## When something's off
 
+Start with the doctor. It checks the shortcut, desktop access, microphone, speech engine and model, and the AI client,
+and says what to do for each ✗:
+
+```bash
+~/.local/share/atticus/atticus-shell --doctor            # what works
+~/.local/share/atticus/atticus-shell --doctor --listen   # also records 4 s from your mic and shows what Atticus heard
+```
+
 - **`build-linux.sh` says it can't load GTK and WebKit** (older copies said *Missing GTK/WebKit for Python*), but the
   packages are installed: those bindings only work with your distribution's own Python. A `python3` from mise, pyenv,
   Homebrew, conda or uv that comes first on `PATH` can't load them. The script now tries `/usr/bin/python3` first and
@@ -129,6 +137,8 @@ docker run --rm -v "$PWD":/src atticus-linux-test sh linux/packaging/gui-tests.s
 docker run --rm -v "$PWD":/src atticus-linux-test sh linux/packaging/x11-live.sh        # live X11: window moves, key grabs, clipboard
 docker build -f linux/packaging/gnome-test.Dockerfile -t atticus-gnome-test .
 docker run --rm -v "$PWD":/src atticus-gnome-test sh linux/packaging/gnome-live.sh      # headless GNOME Shell with the extension
+# live shortcuts on headless Sway: an image with sway and wtype on top of atticus-linux-test, then
+docker run --rm -v "$PWD":/src <that image> sh linux/packaging/wl-live.sh
 ```
 
 Add `--platform linux/amd64` (or `linux/arm64`) to test the other architecture. On a Linux desktop, `./check --all` runs

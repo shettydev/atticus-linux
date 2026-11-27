@@ -6,6 +6,7 @@ Sources: the GlobalShortcuts portal (GNOME 48+, KDE, Hyprland), an X11 passive g
 import threading
 import time
 
+LOST_RELEASE = 0.5     # a second press this long into a hold means the desktop never reported the release
 AUTOREPEAT = 0.035     # a release followed this soon by a press is X11 auto-repeat, not the user letting go
 TOGGLE_REVIEW = 60.0   # toggle recordings reach the review screen instead of sending (GUIDE, shortcut behaviour)
 MODIFIERS = {'CTRL', 'ALT', 'SHIFT', 'LOGO'}
@@ -35,6 +36,9 @@ class HoldMachine:
             return ['start']
         if self.state == 'toggled' and not self.down_seen:
             self.state = 'idle'
+            return ['send']
+        if self.state == 'held' and self.pending_up is None and t - self.started > LOST_RELEASE:
+            self.state = 'idle'   # no route repeats a held key, so the release was lost: this press sends, as in toggle mode
             return ['send']
         return []
 

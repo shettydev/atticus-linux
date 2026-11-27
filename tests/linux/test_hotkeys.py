@@ -17,6 +17,16 @@ class Clock:
 
 
 class HoldMachineTests(unittest.TestCase):
+    def test_a_lost_release_does_not_leave_atticus_stuck(self):   # a desktop dropped the key-up: the next press sends
+        clock = [0.0]
+        h = H.HoldMachine('hold', now=lambda: clock[0])
+        self.assertEqual(h.down(), ['start'])
+        clock[0] += 3
+        self.assertEqual(h.down(), ['send'])
+        self.assertEqual(h.state, 'idle')
+        clock[0] += 1
+        self.assertEqual(h.down(), ['start'])
+
     def setUp(self):
         self.clock = Clock()
 

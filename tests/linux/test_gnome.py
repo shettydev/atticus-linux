@@ -117,8 +117,58 @@ class GnomeSpecifics(unittest.TestCase):
             self.assertIn(f"{method}:", js, method)     # every method the bridge calls has a handler
 
 
+class LateExtensionTests(unittest.TestCase):
+    def test_extension_loaded_after_atticus_starts_is_used(self):   # at login atticus.service can start first
+        class Bus:
+            owned = False
+
+            def name_owned(self):
+                return self.owned
+
+            def call(self, method, args):
+                return {'x': 1, 'y': 2}
+        bus = Bus()
+        clock = [100.0]
+        b = G.GnomeBridge(bus=bus, installed=lambda: True, now=lambda: clock[0])
+        self.assertFalse(b.available)
+        self.assertIsNone(b._call('pointer'))
+        bus.owned = True
+        clock[0] += 3
+        self.assertEqual(b._call('pointer'), {'x': 1, 'y': 2})
+        self.assertTrue(b.available)
+        self.assertEqual(b.unavailable_reason, '')
+
+
 @unittest.skipUnless(os.environ.get('ATTICUS_GNOME_LIVE'), 'live GNOME: run linux/packaging/gnome-live.sh')
 class GnomeLive(unittest.TestCase):
+    def test_shortcut_press_and_release_reach_atticus(self):
+        from gi.repository import GLib
+        from atticus_shell import ipc, shortcuts
+        edges = []
+
+        class App:
+            def trigger(self, which, edge):
+                edges.append((which, edge))
+        self.assertTrue(ipc.serve(App()))
+        self.addCleanup(ipc.stop)
+        b = G.GnomeBridge()
+        result = shortcuts.bind_gnome({'talk': 'CTRL+ALT+space'}, b)
+        self.assertEqual((result.bound, result.error), ({'talk': True}, ''))
+        self.assertTrue(b._call('test_keys', keys=['Control_L', 'Alt_L', 'space'], hold=400).get('ok'))
+
+        def spin(until, seconds=5):
+            end = time.time() + seconds
+            while time.time() < end and not until():
+                GLib.MainContext.default().iteration(False)
+                time.sleep(0.01)
+        spin(lambda: ('talk', 'up') in edges)
+        self.assertEqual(edges, [('talk', 'down'), ('talk', 'up')])   # one press, one release: hold to talk works
+        edges.clear()
+        self.assertTrue(b._call('test_keys', keys=['Control_L', 'Alt_L', 'space'], hold=900).get('ok'))   # held past key repeat
+        spin(lambda: ('talk', 'up') in edges)
+        self.assertEqual(edges, [('talk', 'down'), ('talk', 'up')])
+        self.assertEqual(shortcuts.bind_gnome({'talk': 'CTRL+ALT+space'}, b).bound, {'talk': True})   # Atticus restarted: binds again
+
     def test_extension_answers(self):
         b = G.GnomeBridge()
         self.assertTrue(b.available, b.unavailable_reason)

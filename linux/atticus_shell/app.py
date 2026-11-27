@@ -402,6 +402,58 @@ def _dictation(prefs, env, bridge, app_box, cue):
                                          later, lambda key: post(lambda: cue(key)))
 
 
+def install_shortcuts(env, bridge, bindings, on_edge):
+    """Each desktop's own way (see shortcuts.py); the outcome is saved for --doctor and a failure is never silent."""
+    from gi.repository import Gio
+    from atticus_shell import hotkeys, shortcuts
+    from atticus_shell.desktop.env import detect
+    state = {'route': None}
+
+    def finish(result):
+        state['route'] = result.route
+        shortcuts.report(result)
+
+    def fallback(attempt=0):
+        if state['route'] == 'gnome':
+            return False
+        current = detect() if attempt else env
+        kind = shortcuts.route(current, gnome_ready=False)
+        names = [n for n in hotkeys.ORDER if n in bindings]
+        if kind == 'x11':
+            try:
+                hotkeys.X11Grab(bindings, on_edge).start()
+                finish(shortcuts.Result('x11', {n: True for n in names}))
+            except Exception as e:
+                finish(shortcuts.Result('x11', {n: False for n in names}, f'X11 refused the key grab: {e}'))
+        elif kind == 'hyprland':
+            finish(shortcuts.bind_hyprland(bindings))
+        elif kind == 'sway':
+            finish(shortcuts.bind_sway(bindings))
+        elif kind == 'portal':
+            try:
+                got = hotkeys.PortalShortcuts(hotkeys.GioPortal(), bindings, on_edge).start() or {}
+                bound = {n: n in got for n in names}
+                finish(shortcuts.Result('portal', bound, '' if all(bound.values()) else
+                                        'The desktop’s shortcut service didn’t confirm the shortcuts (was its dialog closed?). Restart Atticus to be asked again.'))
+            except Exception as e:
+                finish(shortcuts.Result('portal', {n: False for n in names}, f'The desktop’s shortcut service refused: {e}'))
+        elif attempt < 3:   # at login the portal can start after Atticus: look again
+            GLib.timeout_add_seconds((3, 10, 30)[attempt], lambda: (fallback(attempt + 1), False)[1])
+        else:
+            finish(shortcuts.Result('manual', {}, shortcuts.MANUAL))
+        return False
+
+    GLib, _ = _gtk()
+    if env.session != 'x11' and env.compositor == 'gnome':
+        def appeared(*_):   # the extension loaded, or came back after a GNOME restart: grab the keys there
+            if state['route'] in (None, 'gnome', 'manual'):
+                finish(shortcuts.bind_gnome(bindings, bridge))
+        Gio.bus_watch_name(Gio.BusType.SESSION, 'app.atticus.ShellBridge', Gio.BusNameWatcherFlags.NONE, appeared, None)
+        GLib.timeout_add_seconds(5, lambda: (state['route'] is None and fallback(), False)[1])   # not loaded yet (first login)
+    else:
+        fallback()
+
+
 def main(env):
     GLib, Gtk = _gtk()
     from atticus_shell import hotkeys, ipc
@@ -552,13 +604,6 @@ def main(env):
     GLib.timeout_add(20, tick)
     bindings = {'talk': prefs.str('linuxHotkey'), 'dictate': prefs.str('linuxDictateHotkey'),
                 'handoff': prefs.str('linuxHandoffHotkey'), 'meeting': prefs.str('linuxMeetingHotkey')}
-    source = hotkeys.pick_source(env)
-    if source == 'x11':
-        hotkeys.X11Grab(bindings, lambda w, e: post(lambda: edges(w, e))).start()
-    elif source == 'portal':
-        try:
-            hotkeys.PortalShortcuts(hotkeys.GioPortal(), bindings, lambda w, e: post(lambda: edges(w, e))).start()
-        except Exception:
-            pass   # onboarding shows how to bind the shortcut by hand
+    install_shortcuts(env, bridge, bindings, lambda w, e: post(lambda: edges(w, e)))
     Gtk.main()
     return 0

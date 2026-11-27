@@ -32,6 +32,7 @@ HANDLERS = {
     '--trigger': ipc.cli_handler('Trigger'),
     '--settings': ipc.cli_handler('OpenSettings'),
     '--bridge': lambda a: __import__('atticus_shell.bridge_cli', fromlist=['x']).bridge_command(a),
+    '--doctor': lambda args: __import__('atticus_shell.doctor', fromlist=['main']).main(args),
     '--selftest': lambda args: __import__('atticus_shell.speech.stt', fromlist=['selftest']).selftest(args),
 }
 
