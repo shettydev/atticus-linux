@@ -237,6 +237,29 @@ def main(env):
                   speak=lambda text: speaker.say(tts.read_aloud_text(text), prefs.num('voiceRate') or 196),
                   cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
     app_box.controller.voice = speaker
+    from atticus_shell import tray
+
+    def menu(item):
+        c = app_box.controller
+        if item == 'ask':
+            c.show()
+            c.js('compose', True)
+            app_box.window.set_accept_focus(True)
+            app_box.window.present()
+        elif item in ('pause', 'resume'):
+            prefs.set('paused', item == 'pause')
+            panel.refresh()
+        elif item == 'tips-again':
+            prefs.set('tips', True)
+            panel.refresh()
+        elif item == 'tip':
+            Gtk.show_uri_on_window(None, 'https://ko-fi.com/saarthr', 0)
+        elif item == 'quit':
+            Gtk.main_quit()
+        else:
+            getattr(c.app, 'menu_' + item.replace('-', '_'), lambda: None)()   # agents, shelf, dictation, meeting, settings: later tasks
+    panel = tray.Tray(menu, lambda: {'paused': prefs.bool('paused'), 'tips': prefs.bool('tips'), 'dictate': prefs.bool('dictate'),
+                                     'listening': app_box.controller.listening})
     debounce = hotkeys.HoldMachine('hold')
 
     def edges(which, edge):
