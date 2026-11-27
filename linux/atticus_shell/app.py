@@ -376,6 +376,9 @@ def main(env):
         hooks.agents = agents_mod.AgentsUI(env, bridge, prefs.d, prefs.set, None)
     except Exception:
         hooks.agents = None
+    if hooks.agents:
+        from atticus_shell.routines import RoutineWake
+        hooks.routines = RoutineWake(os.path.dirname(prefs.path), hooks.agents.service.send, post)
     from atticus_shell import tray
 
     def menu(item):

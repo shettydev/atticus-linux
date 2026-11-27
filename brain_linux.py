@@ -720,6 +720,114 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
         return f'Could not use the page: {e}\nUse the screen instead: {A.HANDS} see'
 
 
+# --- routines: systemd user timers ---------------------------------------------------------------------------------------
+def _units_dir():
+    import atticus
+    return os.path.join(atticus.DIR, 'systemd') if os.environ.get('ATTICUS_DIR') else \
+        os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'), 'systemd', 'user')
+
+
+def routine_job_path(identifier):
+    return os.path.join(_units_dir(), f'atticus-routine-{identifier}.timer')
+
+
+def _systemctl(*args):
+    return subprocess.run(['systemctl', '--user', *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def routine_install(row):
+    """A .service that fires the routine and a .timer that wakes it; Persistent=false so a restart never repeats a run."""
+    import atticus
+    import shlex
+    timer = atticus.routine_job_path(row['id'])
+    service = timer[:-len('.timer')] + '.service'
+    os.makedirs(os.path.dirname(timer), mode=0o700, exist_ok=True)
+    if row['kind'] == 'interval':
+        when = f"OnActiveSec={row['every']}s\nOnUnitActiveSec={row['every']}s"
+    else:
+        days = 'Mon..Fri ' if row['days'] == 'weekdays' else ''
+        when = f"OnCalendar={days}*-*-* {row['at']}:00"
+    files = {service: f"[Unit]\nDescription=Atticus routine {row['id']}\n\n[Service]\nType=oneshot\n"
+                      f"ExecStart={shlex.join([sys.executable, atticus.ME, '--routine-fire', row['id']])}\n",
+             timer: f"[Unit]\nDescription=Atticus routine {row['id']}\n\n[Timer]\n{when}\nPersistent=false\nAccuracySec=1s\n\n"
+                    "[Install]\nWantedBy=timers.target\n"}
+    for path, text in files.items():
+        with open(path + '.tmp', 'w') as f:
+            f.write(text)
+        os.chmod(path + '.tmp', 0o600)
+        os.replace(path + '.tmp', path)
+    if not os.environ.get('ATTICUS_DIR'):
+        _systemctl('daemon-reload')
+        if _systemctl('enable', '--now', os.path.basename(timer)).returncode:
+            for path in files:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            raise OSError('Could not start the routine. Try again.')
+
+
+def routine_repair():
+    """A routine whose timer is missing (a reinstall, a cleared config) gets it back."""
+    import atticus
+    for row in atticus.routines():
+        if not os.path.exists(atticus.routine_job_path(row['id'])):
+            try:
+                routine_install(row)
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+
+
+def routine_remove(identifier):
+    import atticus
+    import fcntl
+    if not re.fullmatch(r'[a-f0-9]{12}', identifier):
+        return False
+    os.makedirs(atticus.DIR, mode=0o700, exist_ok=True)
+    with open(os.path.join(atticus.DIR, 'routines.lock'), 'a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rows = atticus.routines()
+        kept = [r for r in rows if r.get('id') != identifier]
+        if len(rows) == len(kept):
+            return False
+        atticus.private_json(os.path.join(atticus.DIR, 'routines.json'), kept)
+    timer = atticus.routine_job_path(identifier)
+    if not os.environ.get('ATTICUS_DIR'):
+        subprocess.run(['systemctl', '--user', 'disable', '--now', os.path.basename(timer)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for path in (timer, timer[:-len('.timer')] + '.service'):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    return True
+
+
+def routine_fire(identifier, now=None):
+    """The timer fired: queue the routine once per slot and make sure Atticus is running to start it."""
+    import atticus
+    import fcntl
+    import time
+    if not re.fullmatch(r'[a-f0-9]{12}', identifier) or atticus.pref('paused', False):
+        return False
+    os.makedirs(atticus.DIR, mode=0o700, exist_ok=True)
+    with open(os.path.join(atticus.DIR, 'routines.lock'), 'a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rows = atticus.routines()
+        row = next((r for r in rows if r.get('id') == identifier), None)
+        slot = atticus.routine_slot(row, now) if row else None
+        if not slot or row.get('lastSlot') == slot:
+            return False
+        row['lastSlot'], row['lastAt'] = slot, time.time() if now is None else now
+        atticus.private_json(os.path.join(atticus.DIR, 'routines.json'), rows)
+        fd = os.open(os.path.join(atticus.DIR, 'routine-queue.jsonl'), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, 'a') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(json.dumps({'id': identifier}) + '\n')
+    if not os.environ.get('ATTICUS_DIR'):
+        subprocess.run(['systemctl', '--user', 'start', 'atticus.service'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True
+
+
 def _stub(name, task):
     def stub(*args, **kwargs):
         raise NotImplementedError(f'linux: {name} lands in {task}')
@@ -729,15 +837,15 @@ def _stub(name, task):
 
 # name -> the task that replaces the stub. Remove a line when its real implementation lands in REPLACED.
 STUBS = {
-        'routine_job_path': 'Task 29', 'routine_install': 'Task 29', 'routine_remove': 'Task 29', 'routine_fire': 'Task 29',
-    'mac_profile': 'Task 33', 'contacts': 'Task 33', 'playlist': 'Task 34', 'play': 'Task 34', 'queue': 'Task 34',
+        'mac_profile': 'Task 33', 'contacts': 'Task 33', 'playlist': 'Task 34', 'play': 'Task 34', 'queue': 'Task 34',
     'need': 'Task 36', 'automation_hint': 'Task 36',
 }
 
 REPLACED = {'osa': osa, 'image_size': image_size, 'screens': screens, **{f.__name__: f for f in (
     thumb, preview_commands, restore_focus, request_screen, placement_window, front, _place, keep_behind, show, installed_apps,
     proc_of, app_id, app_running, quit_app, notify, open_command, launches_program, background_tab, remember_background_tab, browser_terms,
-    browser_adapter, close_agent_window, work_page, page_document, work_tab_page, show_tab, allow_page_js, agent_window_id, web)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
+    browser_adapter, close_agent_window, work_page, page_document, work_tab_page, show_tab, allow_page_js, agent_window_id, web,
+    routine_job_path, routine_install, routine_repair, routine_remove, routine_fire)}, **{name: _stub(name, task) for name, task in STUBS.items()}}
 
 # Touch macOS words only to classify command text the model wrote; the same rules hold on Linux.
 PORTABLE = {
