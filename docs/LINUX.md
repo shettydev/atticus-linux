@@ -132,10 +132,59 @@ the host-safe suite, including `tests/linux/`.
 
 ## Uninstall
 
+Run these in a terminal, from your desktop session. They're safe to run even if some parts were never set up
+("not loaded" or "does not exist" messages are fine).
+
+**1. Stop Atticus and everything it started**
+
 ```bash
 systemctl --user disable --now atticus.service
-rm -rf ~/.local/share/atticus ~/.local/share/atticus-venv ~/.atticus ~/.config/atticus \
-       ~/.config/systemd/user/atticus.service ~/.config/systemd/user/atticus-routine-* \
-       ~/.local/share/applications/atticus.desktop ~/.local/share/gnome-shell/extensions/atticus@atticus.app
-sudo rm -f /etc/udev/rules.d/60-atticus-uinput.rules
+find ~/.config/systemd/user -maxdepth 1 -name 'atticus-routine-*.timer' -exec sh -c 'systemctl --user disable --now "$(basename "$1")"' _ {} \;
+pkill -f 'atticus_shell' || true
+pkill -f '[.]local/share/atticus/atticus[.]py' || true
+gnome-extensions disable atticus@atticus.app 2>/dev/null || true
 ```
+
+**2. Remove the app**
+
+```bash
+rm -f ~/.config/systemd/user/atticus.service
+find ~/.config/systemd/user -maxdepth 1 -name 'atticus-routine-*' -delete
+systemctl --user daemon-reload
+rm -rf ~/.local/share/atticus ~/.local/share/atticus-venv ~/.local/share/gnome-shell/extensions/atticus@atticus.app
+rm -f ~/.local/share/applications/atticus.desktop
+rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/atticus"
+find ~/.config ~/.mozilla ~/.librewolf -name app.atticus.web.json -delete 2>/dev/null || true
+```
+
+The last line removes the files that let your browsers talk to Atticus.
+
+**3. Remove the click-and-type permission** (asks for your password)
+
+```bash
+sudo rm -f /etc/udev/rules.d/60-atticus-uinput.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=uinput
+```
+
+**4. Remove your data and the source** (optional, and can't be undone)
+
+This deletes your settings, saved rules, learned shortcuts, dictation history, chats, downloaded speech models and the
+browser extension's key. Skip the first line if you might reinstall.
+
+```bash
+rm -rf ~/.config/atticus
+rm -rf ~/.atticus        # the downloaded source; check first if you changed any code there
+```
+
+**5. By hand, if you set these up**
+
+- In your browser, open `chrome://extensions` and remove **Atticus**. In Firefox, restarting drops a temporary add-on.
+- Delete any custom shortcuts you added (GNOME Settings → Keyboard → Custom Shortcuts), or the `bindsym … atticus-shell` lines in your Sway config.
+- Atticus turns on your desktop's accessibility support. If nothing else needs it (screen readers do), turn it off:
+  `gsettings set org.gnome.desktop.interface toolkit-accessibility false`
+- Log out and back in so GNOME unloads the extension and the input permission is dropped.
+
+The system packages from `linux/packaging/deps.sh` (GTK, WebKitGTK, Tesseract and so on) are left installed, because
+other programs may use them. `linux/packaging/deps.sh --print apt` (or `dnf`, `pacman`, `zypper`) lists them if you want to
+review them. Claude Code, Devin and Pi are separate programs and are not touched.
