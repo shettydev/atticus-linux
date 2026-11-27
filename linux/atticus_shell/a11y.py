@@ -107,6 +107,7 @@ class FakeAcc:
         self.role, self.name, self.value, self.rect = role, name, value, tuple(rect)
         self.states, self.kids, self.text = set(states), list(kids), text
         self.actions, self.on_action, self.scrolled = [], None, False
+        self.caret, self.selection = None, None   # Text interface: caret offset, (start, end)
 
     def children(self):
         return self.kids
@@ -195,6 +196,20 @@ class AtspiAcc:
     @property
     def editable(self):
         return 'editable' in self.states
+
+    @property
+    def caret(self):
+        from gi.repository import Atspi
+        v = self._try(lambda: Atspi.Text.get_caret_offset(self.obj), -1)
+        return v if v is not None and v >= 0 else None
+
+    @property
+    def selection(self):
+        from gi.repository import Atspi
+        if not self._try(lambda: Atspi.Text.get_n_selections(self.obj), 0):
+            return None
+        r = self._try(lambda: Atspi.Text.get_selection(self.obj, 0), None)
+        return (r.start_offset, r.end_offset) if r else None
 
     def action_names(self):
         from gi.repository import Atspi
