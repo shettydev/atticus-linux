@@ -16,7 +16,7 @@ jobs:
           docker build -q -f linux/packaging/test.Dockerfile -t atticus-linux-test .
           docker build -q -f linux/packaging/gnome-test.Dockerfile -t atticus-gnome-test .
       - name: Linux unit tests in the image
-        run: docker run --rm -v "$PWD":/src atticus-linux-test python3 -m unittest discover -s tests/linux -t . -v
+        run: docker run --rm -v "$PWD":/src atticus-linux-test sh linux/packaging/gui-tests.sh
       - name: Live X11 bridge
         run: docker run --rm -v "$PWD":/src atticus-linux-test sh linux/packaging/x11-live.sh
       - name: Live GNOME Shell extension
