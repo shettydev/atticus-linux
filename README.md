@@ -43,7 +43,31 @@ Works on photos, pages, code, anything you can see.
   </tr>
 </table>
 
-## Install
+## Ubuntu Linux preview
+
+The preview opens installed apps and arranges windows from a typed ask box. It targets Ubuntu Desktop 26.04 LTS with GNOME Shell 50 on Wayland. The same Debian packages run on x86-64 (Intel or AMD, called `amd64` by Ubuntu) and ARM64. The voice interface, agents, meetings and remaining features are tracked in the [Linux port plan](docs/LINUX-PORT-PLAN.md).
+
+Clone the Linux development branch and install both packages from source:
+
+```sh
+git clone --branch codex/atticus-linux --single-branch https://github.com/shettydev/atticus-linux.git
+cd atticus-linux
+./install.sh
+```
+
+Log out and back in, then run these commands in a terminal in your GNOME session:
+
+```sh
+gnome-extensions enable desktop@atticus.local
+gnome-extensions info desktop@atticus.local
+atticus --ask "open Files"
+```
+
+The extension should report **ACTIVE**. Once the Files window appears, press **Ctrl+Alt+Space**, type **move Files to the left**, and press Enter. The window should occupy the left half of the display and Atticus should confirm the move. To test the command-line helper, run `atticus --place org.gnome.Nautilus right primary`. An optional quoted title selects a specific window when several are open.
+
+If the shortcut does nothing, run `atticus` in the terminal to open the ask box directly. Check `echo "$XDG_SESSION_TYPE"` for `wayland`, `gnome-shell --version` for version 50, and the extension state above. Run `./build.sh` to build packages without installing them. To remove the preview, run `sudo apt remove atticus atticus-gnome`.
+
+## Install on macOS
 
 ```
 curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.sh | bash

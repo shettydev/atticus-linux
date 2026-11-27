@@ -1387,6 +1387,7 @@ def restore_focus(app, task, cmds):
 
 def request_screen():
     if os.environ.get('ATTICUS_SCREEN'): return os.environ['ATTICUS_SCREEN']
+    if sys.platform.startswith('linux'): return 'current'
     app = os.environ.get('ATTICUS_FRONT') or front()[0]
     try:
         x, y = map(int, osa(f'tell application "System Events" to tell process "{app}" to get position of window 1').split(', '))
@@ -1426,6 +1427,13 @@ SPACE_MOVE = threading.Lock()   # switching Spaces hides every other window on t
 
 
 def place(proc, where='full', screen='current', title=''):
+    if sys.platform.startswith('linux'):
+        from linux_desktop import place as linux_place
+        return linux_place(proc, where, screen, title)
+    return place_macos(proc, where, screen, title)
+
+
+def place_macos(proc, where='full', screen='current', title=''):
     """Place a window; full maximizes, fullscreen enters a native macOS Space."""
     held = []
     def space():   # a window that changes the Space holds it until that window is placed and checked (place_many moves windows at once)
@@ -1576,6 +1584,8 @@ def place_many(args):
     from concurrent.futures import ThreadPoolExecutor
     moves = [m.split('\0') for m in '\0'.join(args).split('\0+\0') if m and m != '+']
     if not moves: return 'no window found: no placement requested'
+    if any(len(move) > 4 for move in moves):
+        return 'NOT DONE: quote the window title as a single argument.'
     screen = request_screen()
     for m in moves:
         if len(m) < 3: m += ['full', 'current'][len(m) - 1:]
@@ -2750,7 +2760,7 @@ MOVE_WORDS = [(r'\bfull ?screen\b', 'fullscreen'), (r'\bmaximi[sz]ed?\b', 'full'
               (r'\b(?:laptop|macbook|built ?in|(?:small|smaller|little|mac) (?:screen|display))(?: (?:screen|display))?\b', 'laptop')]
 
 
-def move_target(t):
+def move_target(t, resolve_app=None, resolve_previous=None):
     """"put chrome on the left of the monitor", "full screen chrome on my big screen" -> (app, left|right|full|center, laptop|monitor|current), or None.
     Everything but the app, one place and one screen must be filler, so "what's on my monitor" stays with the AI."""
     for pat, word in MOVE_WORDS:
@@ -2763,12 +2773,16 @@ def move_target(t):
     if not who:
         return None
     if who in ('it', 'that', 'this', 'window', 'that window', 'this window'):
-        app = Path(LAST).read_text().strip() if os.path.exists(LAST) and time.time() - os.path.getmtime(LAST) < 600 else front()[0]
+        if resolve_previous is None:
+            app = Path(LAST).read_text().strip() if os.path.exists(LAST) and time.time() - os.path.getmtime(LAST) < 600 else front()[0]
+        else:
+            app = resolve_previous()
     else:
-        app = app_named(who) or app_named(re.sub(r' window$', '', who))   # an installed name wins before treating "window" as filler
+        lookup = resolve_app or app_named
+        app = lookup(who) or lookup(re.sub(r' window$', '', who))   # an installed name wins before treating "window" as filler
         if not app:
             opened = re.sub(r'^(?:put )?' + OPEN + r'\s+', '', t)
-            return move_target(opened) if opened != t else None
+            return move_target(opened, resolve_app, resolve_previous) if opened != t else None
     return app, 'center' if where == 'middle' else where, screen
 
 
@@ -9065,7 +9079,8 @@ def main():
     if args[:1] == ['--hands']:
         signal.signal(signal.SIGTERM, stop_workers)
     if args == ['--wait'] or args[:1] == ['--fast']:
-        os.setpgrp()   # cancellation also stops the worker's own helper processes
+        if os.getpgrp() != os.getpid():
+            os.setpgrp()   # cancellation also stops the worker's own helper processes
         signal.signal(signal.SIGTERM, stop_workers)
     if args[:1] == ['--watch'] and (len(args) in (5, 6) and args[3] in ('gone', 'shows', 'settled') or len(args) in (3, 4) and args[1] == 'cmd'):
         os.makedirs(WATCHING, exist_ok=True)   # the watcher runs on after this ask ends

@@ -1,0 +1,8 @@
+<schemalist>
+  <schema id="org.gnome.shell.extensions.atticus" path="/org/gnome/shell/extensions/atticus/">
+    <key name="atticus-open-ask" type="as">
+      <default>['&lt;Control&gt;&lt;Alt&gt;space']</default>
+      <summary>Open the Atticus ask box</summary>
+    </key>
+  </schema>
+</schemalist>

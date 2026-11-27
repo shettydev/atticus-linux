@@ -1955,7 +1955,7 @@ time.sleep(30)
 ''')
             fake.chmod(0o755)
             runner = root / 'run.py'
-            runner.write_text("import atticus\natticus.pref=lambda k,d: 'devin' if k=='client' else False if k=='safe' else d\natticus.run_devin('test')\n")
+            runner.write_text(f"import atticus, os\nos.environ['PATH'] = {str(root)!r} + os.pathsep + os.environ['PATH']\natticus.pref=lambda k,d: 'devin' if k=='client' else False if k=='safe' else d\natticus.run_devin('test')\n")
             p = subprocess.Popen([sys.executable, str(runner)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
                                       'ATTICUS_DIR': str(root), 'PYTHONPATH': str(Path(atticus.ME).parent)})
@@ -1985,7 +1985,7 @@ time.sleep(30)
 ''')
             fake.chmod(0o755)
             runner = root / 'run.py'
-            runner.write_text("import atticus\natticus.pref=lambda k,d: 'pi' if k=='client' else False if k=='safe' else d\natticus.run_pi('test')\n")
+            runner.write_text(f"import atticus, os\nos.environ['PATH'] = {str(root)!r} + os.pathsep + os.environ['PATH']\natticus.pref=lambda k,d: 'pi' if k=='client' else False if k=='safe' else d\natticus.run_pi('test')\n")
             p = subprocess.Popen([sys.executable, str(runner)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
                                       'ATTICUS_DIR': str(root), 'PYTHONPATH': str(Path(atticus.ME).parent)})
@@ -2168,7 +2168,7 @@ class WatchAndBudgetTests(unittest.TestCase):
              patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
              patch.object(atticus, 'screens', return_value=[('Built-in', 0, 0, 1470, 956, True), ('Acer', 1470, 0, 1920, 1080, False)]):
             run.return_value.returncode = 0
-            atticus.place('Preview', 'full', 'laptop', 'Ch4-Study-Guide copy.pdf')
+            atticus.place_macos('Preview', 'full', 'laptop', 'Ch4-Study-Guide copy.pdf')
         app = [c for c in calls if 'get bounds' in c] + [run.call_args.args[0][2]]
         self.assertTrue(all('whose name is "Ch4-Study-Guide copy.pdf"' in c and 'window 1' not in c for c in app))
 
@@ -2182,7 +2182,7 @@ class WatchAndBudgetTests(unittest.TestCase):
              patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
              patch.object(atticus, 'screens', return_value=[('Built-in', 0, 0, 1470, 956, True)]):
             run.return_value.returncode = 0
-            atticus.place(payload, 'full', 'laptop', payload)
+            atticus.place_macos(payload, 'full', 'laptop', payload)
         scripts = calls + [c.args[0][2] for c in run.call_args_list if c.args[0][:2] == ['osascript', '-e']]
         self.assertTrue(scripts and all('(do shell script "id")' not in s and '\\"id\\"' in s for s in scripts))
 

@@ -271,7 +271,7 @@ class NightTests(unittest.TestCase):
                     return ''
                 with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
                      patch.object(atticus,'screens',return_value=[('Request display',0,0,1000,800,True)]),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run') as shell:
-                    reply=atticus.place('Fixture','fullscreen','laptop')
+                    reply=atticus.place_macos('Fixture','fullscreen','laptop')
                 self.assertEqual(reply.startswith('NOT DONE'),entered=='false')
                 self.assertTrue(any('set value of attribute "AXFullScreen"' in s for s in calls))
                 self.assertTrue(all('window 1' not in s for s in calls));shell.assert_not_called()
@@ -286,7 +286,7 @@ class NightTests(unittest.TestCase):
         displays = [('Built in', 0, 0, 1000, 800, True), ('External', 1000, 0, 1000, 800, False)]
         with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=displays),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run'):
-            self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'NOT DONE: Fixture entered full screen on the wrong display.')
+            self.assertEqual(atticus.place_macos('Fixture','fullscreen','laptop'), 'NOT DONE: Fixture entered full screen on the wrong display.')
 
     def test_native_fullscreen_asks_again_when_macos_drops_the_request(self):
         asked = []
@@ -298,7 +298,7 @@ class NightTests(unittest.TestCase):
             return ''
         with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=[('Laptop',0,0,1000,800,True)]),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run'):
-            self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
+            self.assertEqual(atticus.place_macos('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
         self.assertEqual(len(asked), 2)
 
     def test_place_cli_status_fails_everything_but_a_checked_receipt(self):
@@ -328,7 +328,7 @@ class NightTests(unittest.TestCase):
         with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=[('Laptop',0,0,1000,800,True)]), \
              patch.object(atticus.time,'sleep') as sleep,patch.object(atticus.subprocess,'run'):
-            self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
+            self.assertEqual(atticus.place_macos('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
         self.assertEqual(sleep.call_count, 3)   # two unreadable frames, then one wait to see it hold still
 
     def test_place_batches_state_and_verification_without_fixed_delays(self):
@@ -340,7 +340,7 @@ class NightTests(unittest.TestCase):
              patch.object(atticus, 'screens', return_value=[('Request display', 0, 25, 1000, 775, True)]), \
              patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
              patch.object(atticus, 'preview_app') as preview, patch.object(atticus.time, 'sleep') as sleep:
-            self.assertIn('window -> left', atticus.place('Fixture', 'left'))
+            self.assertIn('window -> left', atticus.place_macos('Fixture', 'left'))
             sleep.assert_not_called()
             self.assertEqual(len(calls), 2)
             preview.assert_called_once()

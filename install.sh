@@ -3,6 +3,21 @@
 #   curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.sh | bash
 # Downloads the source to ~/.atticus (Atticus updates itself from there), builds the app, opens it.
 set -e
+if [[ $(uname -s) == Linux ]]; then
+  src="$(dirname "${BASH_SOURCE[0]:-}")"
+  if [[ ! -x "$src/linux/build-deb.sh" ]]; then
+    echo "Run ./install.sh from the Atticus Linux source checkout." >&2
+    exit 1
+  fi
+  cd "$src"
+  packages=$(mktemp -d)
+  trap 'rm -rf "$packages"' EXIT
+  ./linux/build-deb.sh "$packages"
+  if [[ $EUID -eq 0 ]]; then apt install --reinstall "$packages"/*.deb
+  else sudo apt install --reinstall "$packages"/*.deb; fi
+  echo "Log out and back in, then enable the bridge with: gnome-extensions enable desktop@atticus.local"
+  exit 0
+fi
 DIR="${ATTICUS_DIR:-$HOME/.atticus}"
 echo "Installing Atticus…"
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ] || { echo "Atticus needs macOS 26 or later."; exit 1; }

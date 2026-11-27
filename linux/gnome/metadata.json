@@ -1,0 +1,8 @@
+{
+  "uuid": "desktop@atticus.local",
+  "name": "Atticus Desktop",
+  "description": "Window placement for the Atticus desktop assistant",
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.atticus",
+  "version": 2
+}

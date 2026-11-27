@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Atticus
+Comment=Open apps and arrange windows with typed requests
+Exec=atticus
+Icon=org.atticus.Desktop
+Terminal=false
+Categories=Utility;Accessibility;

@@ -9,3 +9,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: The one gate, same host-safe list as local ./check (Swift typecheck runs only on macOS)
         run: ./check --all
+  ubuntu-gnome:
+    name: Ubuntu 26.04 GNOME on x86-64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and install packages, then exercise placement and the typed ask box
+        run: |
+          test "$(uname -m)" = x86_64
+          ./tests/gnome-smoke.sh

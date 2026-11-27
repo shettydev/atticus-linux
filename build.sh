@@ -1,6 +1,7 @@
 #!/bin/bash
 # Installs Atticus: builds Atticus.app, starts it at login, and (re)starts it now. Run it again after any change.
 set -e; cd "$(dirname "$0")"
+if [[ $(uname -s) == Linux ]]; then exec ./linux/build-deb.sh "$@"; fi
 VERSION=$(tr -d '\n' < VERSION)
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION: $VERSION"; exit 1; }
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<< "$VERSION"

@@ -49,7 +49,7 @@ class Windows:
         with patch.object(atticus.subprocess, 'run', side_effect=self.run), patch.object(atticus, 'osa', side_effect=self.osa), \
              patch.object(atticus, 'free_focus') as focus, patch.object(atticus, 'preview_app'), patch.object(atticus.time, 'sleep'), \
              patch.object(atticus, 'screens', return_value=[('Laptop', 0, 25, 1000, 775, True)]):
-            return atticus.place('Fixture', where, 'laptop', title), focus
+            return atticus.place_macos('Fixture', where, 'laptop', title), focus
 
 
 class PlacementTargetTests(unittest.TestCase):
