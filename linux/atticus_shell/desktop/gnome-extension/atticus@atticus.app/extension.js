@@ -22,8 +22,30 @@ function byId(id) {
 
 function appId(w) {
     const app = Shell.WindowTracker.get_default().get_window_app(w);
-    const id = app ? app.get_id() || '' : '';
+    let id = app ? app.get_id() || '' : '';
+    if (id.startsWith('window:')) id = '';   // the shell's stand-in for an app with no launcher entry: its window class names it
     return id ? id.replace(/\.desktop$/, '') : (w.get_wm_class() || '').toLowerCase();
+}
+
+function unmaximize(w) {   // true when the window was maximized
+    if (!w.maximized_horizontally && !w.maximized_vertically) return false;
+    if (w.get_maximized) w.unmaximize(Meta.MaximizeFlags.BOTH);   // GNOME 46-48
+    else w.unmaximize();                                          // GNOME 49+ dropped get_maximized() and the flags
+    return true;
+}
+
+// Un-maximizing finishes when the app answers, and on GNOME 50 that restores the old position over the requested one:
+// apply the move again until it holds for two checks. The caller reads the frame back, so a refused size still shows.
+function holdFrame(w, a, done) {
+    let tries = 0, held = 0;
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+        const r = w.get_frame_rect();
+        const there = r.x === a.x && r.y === a.y && r.width === a.width && r.height === a.height;
+        held = there ? held + 1 : 0;
+        if (held >= 2 || ++tries >= 20) { done({ok: true}); return GLib.SOURCE_REMOVE; }
+        if (!there) w.move_resize_frame(true, a.x, a.y, a.width, a.height);
+        return GLib.SOURCE_CONTINUE;
+    });
 }
 
 function writeTexture(texture, scale, path, done) {
@@ -53,11 +75,11 @@ const METHODS = {
         }
         return out;
     },
-    move_resize: a => {
-        const w = byId(a.id); if (!w) return {ok: false};
-        if (w.get_maximized()) w.unmaximize(Meta.MaximizeFlags.BOTH);
+    move_resize: (a, done) => {
+        const w = byId(a.id); if (!w) return done({ok: false});
+        const wasMaximized = unmaximize(w);   // a maximized window ignores moves
         w.move_resize_frame(true, a.x, a.y, a.width, a.height);
-        return {ok: true};
+        if (wasMaximized) holdFrame(w, a, done); else done({ok: true});
     },
     set_fullscreen: a => { const w = byId(a.id); if (!w) return {ok: false}; a.on ? w.make_fullscreen() : w.unmake_fullscreen(); return {ok: true}; },
     activate: a => { const w = byId(a.id); if (!w) return {ok: false}; w.activate(global.get_current_time()); return {ok: true}; },
@@ -78,7 +100,7 @@ const METHODS = {
         writeTexture(content.get_texture(), global.display.get_monitor_scale(w.get_monitor()), a.path, done);
     },
 };
-const ASYNC = new Set(['screenshot_area', 'screenshot_window']);
+const ASYNC = new Set(['move_resize', 'screenshot_area', 'screenshot_window']);
 
 export default class AtticusBridge extends Extension {
     enable() {

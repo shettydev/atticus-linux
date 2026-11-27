@@ -1,6 +1,9 @@
 import json
 import os
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -127,6 +130,42 @@ class GnomeLive(unittest.TestCase):
         path = os.path.join(tempfile.mkdtemp(), 'g.png')
         self.assertTrue(b.screenshot_output(out.name, path))
         self.assertGreater(B.png_size(path)[0], 0)
+
+    APP = '''
+import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk
+w = Gtk.Window(title='Atticus live window'); w.set_default_size(500, 350); w.connect('destroy', Gtk.main_quit)
+w.maximize(); w.show_all(); Gtk.main()
+'''
+
+    def test_window_actions_on_a_real_window(self):
+        b = G.GnomeBridge()
+        p = subprocess.Popen([sys.executable, '-c', self.APP], env={**os.environ, 'GDK_BACKEND': 'wayland', 'WAYLAND_DISPLAY': 'wayland-0'})
+        self.addCleanup(p.kill)
+
+        def wait(check, what):
+            end, got = time.time() + 15, None
+            while time.time() < end:
+                got = next((w for w in b.windows() if w.title == 'Atticus live window'), None)
+                if got and check(got):
+                    return got
+                time.sleep(0.2)
+            self.fail(f'{what}: {got}')
+        win = wait(lambda w: True, 'the window never appeared')
+        self.assertFalse(win.app_id.startswith('window:'), f'no usable app name: {win.app_id}')   # apps without a launcher entry
+        # it starts maximized, which a move must leave first
+        self.assertTrue(b.move_resize(win.id, 200, 100, 600, 400), b._call('move_resize', id=win.id, x=200, y=100, width=600, height=400))
+        wait(lambda w: (w.x, w.y, w.width, w.height) == (200, 100, 600, 400), 'move_resize did not stick')
+        self.assertTrue(b.set_fullscreen(win.id, True))
+        wait(lambda w: w.fullscreen, 'not full screen')
+        self.assertTrue(b.set_fullscreen(win.id, False))
+        wait(lambda w: not w.fullscreen, 'still full screen')
+        self.assertTrue(b.activate(win.id))
+        wait(lambda w: w.focused, 'not focused')
+        self.assertTrue(b.keep_above(win.id, True))
+        self.assertTrue(b.lower(win.id))
+        path = os.path.join(tempfile.mkdtemp(), 'w.png')
+        self.assertTrue(b.screenshot_window(win.id, path), b._call('screenshot_window', id=win.id, path=path))
+        self.assertGreater(B.png_size(path)[0], 100)
 
 
 if __name__ == '__main__':
