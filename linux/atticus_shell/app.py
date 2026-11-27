@@ -260,6 +260,34 @@ class Box:
         self.view.set_size_request(int(width), int(height))
 
 
+class AppHooks(B.NullSubsystem):
+    """What the box reaches through `app.*`: subsystems as they land; everything else accepted and ignored."""
+    agents = None
+
+    def agents_message(self, b):
+        if self.agents and ('agents' in b or 'agentOpen' in b):
+            self.agents.open_view()
+
+    def menu_agents(self):
+        if self.agents:
+            self.agents.open_view()
+
+    def line_open_agents(self, ident):
+        self.menu_agents()
+
+    def line_handoff(self, brief):
+        if self.agents:
+            self.agents.service.send({'action': 'prepare', 'brief': brief})
+
+    def copy(self, text):
+        from gi.repository import Gdk, Gtk
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(text, -1)
+
+    def open_uri(self, uri):
+        import subprocess
+        subprocess.Popen(['xdg-open', uri], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class WorkerFinalEngine(PostingEngine):
     """Dictation: live words go to the main loop, the final result stays on the worker (cleanup and insert may take seconds)."""
 
@@ -338,10 +366,16 @@ def main(env):
     from atticus_shell.speech import tts
     speaker = tts.Speaker()
     res = B.resources()
-    app_box = Box(prefs.d, env, bridge, mic=MicAdapter(prefs.d), set_pref=prefs.set,
+    from atticus_shell import agents as agents_mod
+    hooks = AppHooks()
+    app_box = Box(prefs.d, env, bridge, mic=MicAdapter(prefs.d), set_pref=prefs.set, app=hooks,
                   speak=lambda text: speaker.say(tts.read_aloud_text(text), prefs.num('voiceRate') or 196),
                   cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
     app_box.controller.voice = speaker
+    try:
+        hooks.agents = agents_mod.AgentsUI(env, bridge, prefs.d, prefs.set, None)
+    except Exception:
+        hooks.agents = None
     from atticus_shell import tray
 
     def menu(item):
