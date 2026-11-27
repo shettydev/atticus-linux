@@ -260,6 +260,53 @@ class Box:
         self.view.set_size_request(int(width), int(height))
 
 
+class WorkerFinalEngine(PostingEngine):
+    """Dictation: live words go to the main loop, the final result stays on the worker (cleanup and insert may take seconds)."""
+
+    def start(self, lang, on_partial, on_final):
+        self.listening = True
+        self.engine.start(lang, lambda t: post(lambda: on_partial(t)), on_final)
+
+
+def _dictation(prefs, env, bridge, app_box, cue):
+    from atticus_shell import a11y, dictation, input as I, insert as ins, selection
+    data = dictation.DictationData(os.path.join(os.path.dirname(prefs.path), 'dictation.json'), prefs.d, prefs.set)
+    base = engine_factory(prefs.d)
+
+    def engine():
+        e = base()
+        return WorkerFinalEngine(e.engine) if e else None
+
+    def capture():
+        try:
+            return selection.capture(a11y.atspi_apps(), enabled=True, allow_empty=True)
+        except Exception:
+            return None
+    try:
+        injector = I.injector_for(env, bridge)
+    except Exception:
+        injector = None
+
+    def do_insert(text, sel):
+        w = next((w for w in bridge.windows() if w.pid == sel.pid), None)
+        try:
+            return ins.insert(text, sel, sel.focus_identity, lambda: a11y.capture_app(sel.app_obj).focusIdentity,
+                              I.clipboard_for(env), injector, w.app_id if w else '')
+        except ins.NotDone:
+            return 'saved'
+
+    def ui(fn, arg=None):
+        def show():
+            if fn == 'dictate' and arg:
+                app_box.controller.show()
+            app_box._ui(fn, *([] if arg is None else [arg]))
+            if fn == 'dictated':
+                app_box.controller.hide(0.8 if arg and arg.get('ok') else 6)
+        post(show)
+    return dictation.DictationController(ui, engine, MicAdapter(prefs.d), prefs.d, data, capture, do_insert, dictation.brain_cleanup,
+                                         later, lambda key: post(lambda: cue(key)))
+
+
 def main(env):
     GLib, Gtk = _gtk()
     from atticus_shell import hotkeys, ipc
@@ -320,7 +367,13 @@ def main(env):
                                      'listening': app_box.controller.listening})
     debounce = hotkeys.HoldMachine('hold')
 
+    dictate = _dictation(prefs, env, bridge, app_box, cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
+
     def edges(which, edge):
+        if which == 'dictate':
+            if prefs.bool('dictate'):
+                dictate.edge(edge)
+            return
         if which != 'talk':
             return
         for intent in (debounce.down() if edge == 'down' else debounce.up()):
