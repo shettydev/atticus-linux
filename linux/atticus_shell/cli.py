@@ -5,6 +5,8 @@ Swift reference: --look 6344, --text 6438, --system-ui/--raise/--calendar/--hand
 """
 import sys
 
+from atticus_shell import ipc
+
 
 def pending(flag, task):
     def handler(args):
@@ -26,9 +28,9 @@ HANDLERS = {
     '--guide-watch': pending('--guide-watch', 'Task 22'),
     '--type': pending('--type', 'Task 23'),
     '--calendar': pending('--calendar', 'Task 32'),
-    '--raise': pending('--raise', 'Task 10'),
-    '--trigger': pending('--trigger', 'Task 10'),
-    '--settings': pending('--settings', 'Task 10'),
+    '--raise': ipc.cli_handler('Raise'),
+    '--trigger': ipc.cli_handler('Trigger'),
+    '--settings': ipc.cli_handler('OpenSettings'),
     '--bridge': pending('--bridge', 'Task 24'),
     '--selftest': pending('--selftest', 'Task 13'),
 }
