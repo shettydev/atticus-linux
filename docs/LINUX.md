@@ -8,7 +8,7 @@ Works on x86_64 and ARM64 (aarch64).
 
 ## What you need
 
-- **A desktop session**: GNOME 46+ or KDE Plasma 5.27/6 (Wayland or X11), any X11 window manager, Hyprland or Sway.
+- **A desktop session**: GNOME 46 to 50 or KDE Plasma 5.27/6 (Wayland or X11), any X11 window manager, Hyprland or Sway.
   Ubuntu 24.04+, Fedora 40+, Arch and openSUSE Tumbleweed are covered by the package list.
 - **Python 3.12+** and the GTK/WebKit/AT-SPI/GStreamer typelibs (`linux/packaging/deps.sh` installs them).
 - **An AI client**: [Claude Code](https://claude.com/claude-code) signed in to a Claude plan (or a custom server),
@@ -109,6 +109,11 @@ Everything that's left is listed with its reasons in the port plan, `docs/superp
 
 ## When something's off
 
+- **`build-linux.sh` says it can't load GTK and WebKit** (older copies said *Missing GTK/WebKit for Python*), but the
+  packages are installed: those bindings only work with your distribution's own Python. A `python3` from mise, pyenv,
+  Homebrew, conda or uv that comes first on `PATH` can't load them. The script now tries `/usr/bin/python3` first and
+  prints each Python's real error. To pick one yourself: `ATTICUS_PYTHON=/usr/bin/python3 ./build-linux.sh`.
+  `which -a python3` shows which ones you have.
 - Logs: `journalctl --user -u atticus -f` and `~/.config/atticus/app.err`.
 - Restart: `systemctl --user restart atticus`.
 - Run in the foreground to watch it: `systemctl --user stop atticus; ~/.local/share/atticus/atticus-shell`.

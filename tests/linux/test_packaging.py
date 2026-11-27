@@ -81,6 +81,54 @@ class PackagingTests(unittest.TestCase):
         again = build({'ATTICUS_BROWSER_HOME': str(home), 'ATTICUS_CONFIG': str(home / '.config/atticus')}, self.root)
         self.assertEqual(json.loads((Path(self.root) / 'share/atticus/browser-extension/manifest.json').read_text())['key'], manifest['key'])   # same id after a rebuild
 
+    def fake_python(self, folder, gtk):
+        """A python3 that behaves like the real one, except for the GTK import check: it passes (gtk=True) or fails like a
+        mise/pyenv/Homebrew python. A passing one also fakes `-m venv`, so no network is needed."""
+        folder = Path(self.root) / folder
+        folder.mkdir(parents=True, exist_ok=True)
+        check = 'exit 0' if gtk else 'echo "ModuleNotFoundError: No module named \'gi\'" >&2; exit 1'
+        venv = ('if [ "$1 $2" = "-m venv" ]; then mkdir -p "$4/bin"; printf \'#!/bin/sh\\nexit 0\\n\' > "$4/bin/python3"; '
+                f'chmod +x "$4/bin/python3"; echo "{folder}" > "$4/made-by"; exit 0; fi') if gtk else ''
+        (folder / 'python3').write_text(f'#!/bin/sh\ncase "$2" in *require_version*) {check};; esac\n{venv}\nexec "{sys.executable}" "$@"\n')
+        (folder / 'python3').chmod(0o755)
+        return folder / 'python3'
+
+    def build_with_pythons(self, path_gtk, system_gtk, **env):
+        shadow = self.fake_python('shadow', path_gtk)
+        system = self.fake_python('system', system_gtk)
+        env = {'PATH': f'{shadow.parent}:{os.environ["PATH"]}', 'ATTICUS_SYSTEM_PYTHON': str(system), 'ATTICUS_SKIP_DEPS': '',
+               'ATTICUS_VENV': f'{self.root}/venv', **env}
+        return build(env, self.root), shadow, system
+
+    def test_another_python_on_path_does_not_hide_the_system_gtk(self):
+        r, _, system = self.build_with_pythons(path_gtk=False, system_gtk=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(Path(self.root, 'venv/made-by').read_text().strip(), str(system.parent))   # the venv sits on the system python
+
+    def test_launcher_names_the_chosen_python_not_whatever_is_on_path(self):
+        r, _, system = self.build_with_pythons(path_gtk=False, system_gtk=True, ATTICUS_SKIP_DEPS='1', ATTICUS_VENV=f'{self.root}/none')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f'exec "{system}" -m atticus_shell', Path(self.root, 'share/atticus/atticus-shell').read_text())
+
+    def test_path_python_used_when_there_is_no_system_one(self):
+        r, shadow, _ = self.build_with_pythons(path_gtk=True, system_gtk=False, ATTICUS_SYSTEM_PYTHON='/nonexistent/python3')   # NixOS
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(Path(self.root, 'venv/made-by').read_text().strip(), str(shadow.parent))
+
+    def test_no_usable_python_shows_the_real_error(self):
+        r, shadow, system = self.build_with_pythons(path_gtk=False, system_gtk=False)
+        self.assertEqual(r.returncode, 1)
+        out = r.stdout + r.stderr
+        for expected in (str(system), str(shadow), "No module named 'gi'", 'ATTICUS_PYTHON'):
+            self.assertIn(expected, out)
+        self.assertFalse(Path(self.root, 'share/atticus').exists())
+
+    def test_atticus_python_overrides_the_search(self):
+        chosen = self.fake_python('chosen', True)
+        r, _, _ = self.build_with_pythons(path_gtk=False, system_gtk=True, ATTICUS_PYTHON=str(chosen))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(Path(self.root, 'venv/made-by').read_text().strip(), str(chosen.parent))
+
     def test_rebuild_replaces_previous_install(self):
         self.assertEqual(build({}, self.root).returncode, 0)
         stale = Path(self.root) / 'share/atticus/stale.txt'
