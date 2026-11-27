@@ -47,6 +47,15 @@ class PackagingTests(unittest.TestCase):
         self.assertIn(f'Exec={prefix}/atticus-shell', desktop)
         self.assertIn('X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2', desktop)
 
+    def test_launcher_prefers_venv_python(self):
+        venv = Path(self.root) / 'venv/bin'
+        venv.mkdir(parents=True)
+        (venv / 'python3').write_text('#!/bin/sh\necho venv-python "$@"\n')
+        (venv / 'python3').chmod(0o755)
+        self.assertEqual(build({'ATTICUS_VENV': str(venv.parent)}, self.root).returncode, 0)
+        out = subprocess.run(['sh', f'{self.root}/share/atticus/atticus-shell', '--x'], capture_output=True, text=True, timeout=20)
+        self.assertEqual(out.stdout.strip(), 'venv-python -m atticus_shell --x')
+
     def test_rebuild_replaces_previous_install(self):
         self.assertEqual(build({}, self.root).returncode, 0)
         stale = Path(self.root) / 'share/atticus/stale.txt'

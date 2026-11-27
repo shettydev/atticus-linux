@@ -32,7 +32,7 @@ HANDLERS = {
     '--trigger': ipc.cli_handler('Trigger'),
     '--settings': ipc.cli_handler('OpenSettings'),
     '--bridge': pending('--bridge', 'Task 24'),
-    '--selftest': pending('--selftest', 'Task 13'),
+    '--selftest': lambda args: __import__('atticus_shell.speech.stt', fromlist=['selftest']).selftest(args),
 }
 
 

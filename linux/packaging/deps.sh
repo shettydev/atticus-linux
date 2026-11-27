@@ -7,7 +7,7 @@ set -e
 NAMESPACES=('Gtk 3.0' 'WebKit2 4.1' 'GtkLayerShell 0.1' 'AyatanaAppIndicator3 0.1' 'Atspi 2.0' 'Gst 1.0' 'ECal 2.0' 'EBook 1.2')
 pkgs() {
   case $1 in
-    apt) echo python3 python3-gi python3-gi-cairo python3-xlib python3-evdev gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+    apt) echo python3 python3-venv python3-pip python3-gi python3-gi-cairo python3-xlib python3-evdev gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
       gir1.2-gtklayershell-0.1 gir1.2-ayatanaappindicator3-0.1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
       gir1.2-ecal-2.0 gir1.2-ebook-1.2 gir1.2-secret-1 gstreamer1.0-plugins-good gstreamer1.0-pipewire at-spi2-core libglib2.0-bin \
       tesseract-ocr wl-clipboard xclip bubblewrap pipewire-bin pulseaudio-utils git;;

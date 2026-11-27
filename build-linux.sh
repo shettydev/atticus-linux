@@ -16,6 +16,14 @@ PREFIX=${ATTICUS_PREFIX:-$HOME/.local/share/atticus}
 APPS=${ATTICUS_APPLICATIONS:-$HOME/.local/share/applications}
 UNITS=${ATTICUS_SYSTEMD_DIR:-$HOME/.config/systemd/user}
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+# sherpa-onnx (built-in speech, wake word) is pip-only: a venv that still sees the system's GTK/WebKit bindings.
+VENV=${ATTICUS_VENV:-$HOME/.local/share/atticus-venv}
+if [ -z "$ATTICUS_SKIP_DEPS" ]; then
+  [ -x "$VENV/bin/python3" ] || python3 -m venv --system-site-packages "$VENV" || { echo "Could not create $VENV. Run linux/packaging/deps.sh, then ./build-linux.sh again."; exit 1; }
+  "$VENV/bin/python3" -m pip install -q --disable-pip-version-check --upgrade sherpa-onnx ||
+    echo "Note: sherpa-onnx did not install, so built-in speech is off. Whisper (Settings → Voice & Sound) still works."
+fi
+PY=python3; [ -x "$VENV/bin/python3" ] && PY="$VENV/bin/python3"
 STAGE=$(mktemp -d); trap 'rm -rf "$STAGE"' EXIT
 APP="$STAGE/atticus"
 mkdir -p "$APP/ui"
@@ -30,7 +38,7 @@ cat > "$APP/atticus-shell" <<L
 # Atticus for Linux $VERSION ($COMMIT). No arguments: the app. --flags: the helper CLI the brain calls.
 export ATTICUS_RESOURCES_DIR="$PREFIX" ATTICUS_VERSION="$VERSION" ATTICUS_COMMIT="$COMMIT" ATTICUS_SOURCE="$(pwd)"
 export PYTHONPATH="$PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
-exec python3 -m atticus_shell "\$@"
+exec "$PY" -m atticus_shell "\$@"
 L
 chmod +x "$APP/atticus-shell" "$APP/atticus.py"
 mkdir -p "$(dirname "$PREFIX")"
