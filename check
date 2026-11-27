@@ -13,7 +13,7 @@ mods_for() {   # changed paths -> host-safe test files that cover them
   for f; do
     case $f in
       atticus.py|Atticus.swift|ui/*|tests/__init__.py|brain_linux.py) echo "$SAFE"; return;;
-      linux/*|build-linux.sh|install-linux.sh|tests/linux/__init__.py) grep '^tests/linux/' <<<"$SAFE"; grep -x tests/test_linux_seam_ratchet.py <<<"$SAFE"; continue;;
+      linux/*|build-linux.sh|install-linux.sh|uninstall-linux.sh|tests/linux/__init__.py) grep '^tests/linux/' <<<"$SAFE"; grep -x tests/test_linux_seam_ratchet.py <<<"$SAFE"; continue;;
       check) continue;;
     esac
     grep -qx "$f" <<<"$SAFE" && echo "$f"
@@ -51,7 +51,7 @@ trim() {   # unittest output -> failure blocks only
 }
 
 show "$(python3 -m py_compile *.py tests/*.py tests/linux/*.py $(find linux -name '*.py') 2>&1)"
-show "$(for f in build.sh install.sh check build-linux.sh install-linux.sh linux/packaging/deps.sh; do bash -n "$f"; done 2>&1)"
+show "$(for f in build.sh install.sh check build-linux.sh install-linux.sh uninstall-linux.sh linux/packaging/deps.sh; do bash -n "$f"; done 2>&1)"
 if [ "$(uname)" = Darwin ] && command -v swiftc >/dev/null; then   # Linux swiftc has no Cocoa
   o=$(swiftc -typecheck Atticus.swift 2>&1) || show "$(grep -A2 'error:' <<<"$o" | head -40)"
 else

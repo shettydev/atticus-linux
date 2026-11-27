@@ -132,16 +132,37 @@ the host-safe suite, including `tests/linux/`.
 
 ## Uninstall
 
-Run these in a terminal, from your desktop session. They're safe to run even if some parts were never set up
-("not loaded" or "does not exist" messages are fine).
+Run the script from your desktop session, without `sudo` (it asks for your password only to remove the input permission):
+
+```text
+~/.atticus/uninstall-linux.sh                  # remove the app; keep your settings, history and the source
+~/.atticus/uninstall-linux.sh --purge          # also delete your data and the source; asks you to type yes
+~/.atticus/uninstall-linux.sh --purge --yes    # the same without asking
+```
+
+Without a copy of the source (use `bash -s -- --purge` to pass options):
+
+```text
+curl -fsSL https://raw.githubusercontent.com/shettydev/atticus-linux/claude/atticus-linux/uninstall-linux.sh | bash
+```
+
+`--purge` keeps `~/.atticus` if it holds work that exists nowhere else (uncommitted changes, unpushed commits, stashes),
+if it isn't a git checkout, or if it's a link. The script prints which. At the end it lists the few things to remove by
+hand (step 5 below).
+
+### By hand
+
+The same steps without the script. They're safe to run even if some parts were never set up ("not loaded" or "does not
+exist" messages are fine).
 
 **1. Stop Atticus and everything it started**
 
 ```bash
 systemctl --user disable --now atticus.service
 find ~/.config/systemd/user -maxdepth 1 -name 'atticus-routine-*.timer' -exec sh -c 'systemctl --user disable --now "$(basename "$1")"' _ {} \;
-pkill -f 'atticus_shell' || true
-pkill -f '[.]local/share/atticus/atticus[.]py' || true
+pkill -u "$(id -u)" -f '[-]m atticus_shell' || true
+pkill -u "$(id -u)" -f 'from atticus_shell[.]input import serve_clipboard_stdin' || true
+pkill -u "$(id -u)" -f 'python[0-9.]* .*[.]local/share/atticus/atticus[.]py' || true
 gnome-extensions disable atticus@atticus.app 2>/dev/null || true
 ```
 
