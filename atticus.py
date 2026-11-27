@@ -712,6 +712,11 @@ APP_DIRS = ('/Applications/', '/System/Applications/', os.path.join(HOME, 'Appli
 QUIET = (DRAW, SEARCH, READ, LOOK, FRONT, SHOW, PLACE, PLAY, QUEUE, TYPE, REMEMBER, FORGET, ABOUT, PICK, SET, WEB, HISTORY, HANDS, WINDOW, CLI_HELP, f'{shlex.quote(ME)} --calendar ', 'open ', 'mdfind ', 'pbpaste')   # helpers confirm their own risky actions
 
 
+def open_command(target, app=False, background=False):
+    """argv that opens a URL, file or (app=True) an installed app by name."""
+    return ['open'] + (['-g'] if background else []) + (['-a'] if app else []) + [target]
+
+
 def launches_program(part):
     """`open` or --show of a script, program or app outside the Applications folders: macOS runs it, outside the sandbox.
     A path that does not exist yet counts too: this same command makes it, so the gate cannot see what it is."""
@@ -1177,7 +1182,7 @@ def set_switch(words, on):
     on: on|off for a switch, or one of a choice setting's options."""
     stem = lambda t: {w[:3] for w in re.findall(r'[a-z]+', t.lower()) if w not in ('the', 'me', 'my', 'on', 'off', 'setting', 'in', 'a')}
     def unavailable(message='That setting is not available by voice. Atticus Settings is open; change it there.'):
-        subprocess.run(['open', '-a', 'Atticus'], capture_output=True)
+        subprocess.run(open_command('Atticus', app=True), capture_output=True)
         print(message)
     if on not in ('on', 'off'):
         rows = picks()
@@ -2694,12 +2699,12 @@ def fast(text):
         if re.fullmatch(r'(?:https?://)?[\w-]+(\.[\w-]+)+(/\S*)?', site) and not re.search(r'\.(pdf|docx?|xlsx?|pptx?|txt|csv|png|jpe?g|heic|key|pages|numbers|zip|mp[34]|mov|md|py|java)$', target):
             if not asks_front(text): free_focus(user=True)   # "go to", "launch", "pull up" ask to see it too; the guard must not pull it back
             try:
-                opened = subprocess.run(['open', site if site.startswith(('https://', 'http://')) else 'https://' + site])
+                opened = subprocess.run(open_command(site if site.startswith(('https://', 'http://')) else 'https://' + site))
             except OSError:
                 return None
             if opened.returncode:
                 return None
-            fast.cmds = ['open ' + shlex.quote(site if site.startswith(('https://', 'http://')) else 'https://' + site)]
+            fast.cmds = [shlex.join(open_command(site if site.startswith(('https://', 'http://')) else 'https://' + site))]
             return f'Opened {target}.'
         app = app_named(target)
         name = None if app else SITES.get(re.sub(r'^(?:the|my)\s+|\s+(?:website|site)$', '', target))
@@ -2707,10 +2712,10 @@ def fast(text):
         if known:   # an installed app of that name wins ("open chatgpt" with the ChatGPT app); a fuzzy app guess never beats a known site or folder ("hacker news" is not News)
             if not asks_front(text): free_focus(user=True)
             try:
-                if subprocess.run(['open', known]).returncode: return None
+                if subprocess.run(open_command(known)).returncode: return None
             except OSError:
                 return None
-            fast.cmds = ['open ' + shlex.quote(known)]
+            fast.cmds = [shlex.join(open_command(known))]
             return f'Opened {name or os.path.basename(known) or known}.'
         app = app or app_heard(target)
         if not app:
@@ -2721,7 +2726,7 @@ def fast(text):
         else:
             if not asks_front(text): free_focus(user=True)
             try:
-                opened = subprocess.run(['open', '-a', app])   # plain open, ~0.1 s: here and in front
+                opened = subprocess.run(open_command(app, app=True))   # plain open, ~0.1 s: here and in front
             except OSError:
                 return None
             if opened.returncode:
@@ -9193,7 +9198,7 @@ def main():
         return print(show(' '.join(a for a in args[1:] if a != '--bg'), '--bg' in args[:2] or not wants_focus()))
     if args[:1] == ['--allow-js']:   # Setup → Turn on: the user's click is the OK
         app = ' '.join(args[1:]) or 'Google Chrome'
-        subprocess.run(['open', '-g', '-a', app])
+        subprocess.run(open_command(app, app=True, background=True))
         for _ in range(50):   # a launching browser has no menu bar yet, at most 5 s
             if allow_page_js(app): return print('on')
             time.sleep(0.1)
@@ -9401,7 +9406,7 @@ def main():
             stop_claude(warm)
         if key:
             return say('✓', activate(key[1]))
-        subprocess.run(['open', BUY])
+        subprocess.run(open_command(BUY))
         return say('✓', f'Atticus is $5, once. Buy a key on the page that just opened, then type: key <your key>')
     os.environ['ATTICUS_RELAY_OWNER'] = str(os.getpid())
     save_request(os.environ['ATTICUS_ASK'], task)
