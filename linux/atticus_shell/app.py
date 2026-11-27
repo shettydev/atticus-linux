@@ -230,7 +230,13 @@ def main(env):
         ipc.call('Raise', (False,))
         return 0
     bridge = bridge_for(env)
-    app_box = Box(prefs.d, env, bridge, mic=MicAdapter(prefs.d), set_pref=prefs.set)
+    from atticus_shell.speech import tts
+    speaker = tts.Speaker()
+    res = B.resources()
+    app_box = Box(prefs.d, env, bridge, mic=MicAdapter(prefs.d), set_pref=prefs.set,
+                  speak=lambda text: speaker.say(tts.read_aloud_text(text), prefs.num('voiceRate') or 196),
+                  cue=lambda key: tts.play_sound(prefs.str(key), prefs.num('volume'), res))
+    app_box.controller.voice = speaker
     debounce = hotkeys.HoldMachine('hold')
 
     def edges(which, edge):

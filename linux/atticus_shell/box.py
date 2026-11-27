@@ -211,6 +211,7 @@ class BoxController:
         self.copy_text = lambda text: self.app.copy(text)
         self.open_uri = lambda uri: self.app.open_uri(uri)
         self.engine = None
+        self.voice = None   # .speaking / .stop(): the read-aloud Speaker
         self.brain = None
         self.warm = None
         self.listening = self.busy = self.shortcut_down = False
@@ -256,6 +257,8 @@ class BoxController:
             self.show()
             self.hide(4)
             return
+        if self.voice is not None and self.voice.speaking:
+            return self.voice.stop()   # during spoken playback the shortcut stops the voice
         if self.listening:
             return self.stop() if self.prefs.get('talkMode') == 'toggle' else self.dismiss()
         if self.busy:

@@ -355,6 +355,18 @@ class ControllerTests(unittest.TestCase):
         box.typed('still works typed')
         self.assertEqual(FakeBrain.made[-1].sent[-1]['task'], 'still works typed')
 
+    def test_hotkey_while_speaking_stops_voice(self):
+        class Voice:
+            speaking, stopped = True, False
+
+            def stop(self):
+                self.stopped, self.speaking = True, False
+        voice = Voice()
+        self.box.voice = voice
+        self.box.shortcut(True)
+        self.assertTrue(voice.stopped)
+        self.assertFalse(self.engine.running)    # the press only stopped the voice
+
     def test_answer_lingers_by_length(self):
         self.assertEqual(X.linger_after('x' * 12), 6)
         self.assertEqual(X.linger_after('x' * 240), 20)
