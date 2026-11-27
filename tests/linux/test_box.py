@@ -367,6 +367,50 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(voice.stopped)
         self.assertFalse(self.engine.running)    # the press only stopped the voice
 
+    def test_pointer_path_attached_to_request(self):
+        class Pen:
+            def start(self):
+                pass
+
+            def stop(self):
+                return [[0, 10, 10], [0.5, 200, 200]]
+        self.box.pen = Pen()
+        self.box.classify = lambda samples, text: {'meaningful': True}
+        self.talk('what is this')
+        self.assertEqual(FakeBrain.made[-1].sent[-1]['pointerPath'], [[0, 10, 10], [0.5, 200, 200]])
+
+    def test_still_pointer_not_sent(self):
+        class Pen:
+            def start(self):
+                pass
+
+            def stop(self):
+                return [[0, 10, 10], [0.5, 12, 11]]
+        self.box.pen = Pen()
+        self.box.classify = lambda s, t: self.fail('not consulted')
+        self.talk('open spotify')
+        self.assertNotIn('pointerPath', FakeBrain.made[-1].sent[-1])
+
+    def test_point_mode_mark_goes_with_the_next_ask(self):
+        class Pointing:
+            def begin(self, done):
+                self.done = done
+
+            def finish(self):
+                pass
+        pointing = Pointing()
+        self.box.pointing = pointing
+        self.box.make_point_context = lambda pts: {'bounds': [1, 2, 3, 4], 'path': [list(p) for p in pts], 'element': 'x'}
+        self.box.handle('c', {'point': True})
+        self.assertIn(('point', {'active': True, 'marked': False}), self.ui.calls)
+        pointing.done([(5, 5), (9, 9)])
+        self.assertIn(('point', {'active': True, 'marked': True, 'picked': False, 'thumb': ''}), self.ui.calls)
+        self.box.typed('what is this')
+        self.assertEqual(FakeBrain.made[-1].sent[-1]['point']['bounds'], [1, 2, 3, 4])
+        FakeBrain.made[-1].on_exit(0)
+        self.box.typed('and now')    # the mark went with that ask
+        self.assertNotIn('point', FakeBrain.made[-1].sent[-1])
+
     def test_answer_lingers_by_length(self):
         self.assertEqual(X.linger_after('x' * 12), 6)
         self.assertEqual(X.linger_after('x' * 240), 20)

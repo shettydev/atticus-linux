@@ -147,6 +147,64 @@ class Box:
         self.controller = B.BoxController(self._ui, GtkWin(self),
                                           brain=self._brain, engine=engine or engine_factory(prefs), prefs=prefs, later=later,
                                           cue=cue or (lambda name: None), mic=mic, speak=speak, app=app, set_pref=set_pref)
+        self._wire_pointing()
+
+    def _wire_pointing(self):
+        from atticus_shell import pen
+        c, bridge = self.controller, self.bridge
+        sampler, state = pen.PointerSampler(bridge.pointer), {}
+
+        class Pen:   # the trail while the shortcut is held
+            def start(_):
+                GLib, _gtk_ = _gtk()
+                out = self.pointer_output()
+                if out is None:
+                    return
+                sampler.start()
+                sampler.tick()
+                trail = pen.TrailOverlay(out, self.env, capture=sampler.needs_capture, on_motion=sampler.motion)
+                state['trail'] = trail
+                trail.show()
+
+                def tick():
+                    if not sampler.running:
+                        return False
+                    sampler.tick()
+                    if sampler.samples:
+                        trail.add(*sampler.samples[-1][1:])
+                    return True
+                GLib.timeout_add(16, tick)
+
+            def stop(_):
+                samples = sampler.stop()
+                trail = state.pop('trail', None)
+                if trail:
+                    trail.hide()
+                    trail.window.destroy()
+                return samples
+
+        class Pointing:   # Point at your screen
+            def begin(_, done):
+                out = self.pointer_output()
+                x, y = self.window.get_position()
+                w, h = self.window.get_size()
+                state['view'] = pen.PointerView(out, self.env, box=(x, y, w, h), done=done)
+                state['view'].show()
+
+            def finish(_):
+                view = state.pop('view', None)
+                if view:
+                    view.hide()
+                    view.window.destroy()
+
+        def element(point):
+            try:
+                from atticus_shell.a11y import atspi_apps
+                return pen.element_at(bridge, point, atspi_apps())
+            except Exception:
+                return ''
+        c.pen, c.pointing, c.classify, c.thumb = Pen(), Pointing(), pen.brain_classify, pen.thumb
+        c.make_point_context = lambda points: pen.point_context(points, bridge.outputs(), lambda r, p: pen.capture_region(bridge, r, p), element)
 
     def _ui(self, fn, *args):
         from atticus_shell import web_bridge

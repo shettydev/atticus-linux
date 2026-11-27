@@ -212,6 +212,12 @@ class BoxController:
         self.open_uri = lambda uri: self.app.open_uri(uri)
         self.engine = None
         self.voice = None   # .speaking / .stop(): the read-aloud Speaker
+        self.pen = None     # .start() / .stop() -> [[t, x, y]]: the pointer while the shortcut is held
+        self.classify = lambda samples, text: None   # atticus.py --gesture
+        self.pointing = None   # .begin(done) / .finish(): Point at your screen
+        self.make_point_context = lambda points: None
+        self.thumb = lambda path: ''
+        self.talk_path, self.point_context, self.point_active = [], None, False
         self.brain = None
         self.warm = None
         self.listening = self.busy = self.shortcut_down = False
@@ -278,6 +284,9 @@ class BoxController:
         self.warm = self._brain()
         self.warm.start()   # Claude is up by the time the user lets go
         self.engine.start(self.prefs.get('whisperLanguage', 'auto'), self.heard, self._final)
+        self.talk_path = []
+        if self.pen:
+            self.pen.start()
         if self.mic:
             self.mic.start(self.engine.feed)
         if self.prefs.get('typeRight'):
@@ -296,6 +305,7 @@ class BoxController:
         self.busy = True
         if self.mic:
             self.mic.stop()
+        self.talk_path = self.pen.stop() if self.pen else []
         self.cue('soundRelease')
         self.js('think')
         self.js('line', '· Confirming your words…')
@@ -306,6 +316,9 @@ class BoxController:
         if not self.busy or self.listening:
             return
         text = (text or self.text).strip()
+        from atticus_shell.pen import settle
+        self.talk_path, text = settle(self.talk_path, text, self.classify)
+        text = text.strip()
         if not text:
             self.busy = False
             self._unwarm()
@@ -326,6 +339,7 @@ class BoxController:
             return
         if ' '.join(t.lower().split()).strip(' .,!?:;') in ('report feedback', 'report a bug'):
             return self.open_settings('feedback')
+        self.talk_path = []
         self.text, self.answer = t, ''
         self.js('listen', keep)
         self.show()
@@ -340,8 +354,14 @@ class BoxController:
         if brain is not self.warm:
             brain.start()
         self.warm, self.brain = None, brain
+        request = {'front': self.front, 'task': task}
+        if self.talk_path:
+            request['pointerPath'] = self.talk_path
+        if self.point_context:
+            request['point'] = self.point_context
+        self.talk_path, self.point_context = [], None
         try:
-            brain.send({'front': self.front, 'task': task})
+            brain.send(request)
         except OSError:
             self.cancel()
             self.js('msg', 'The request worker stopped. Please try again.')
@@ -571,8 +591,45 @@ class BoxController:
     def _agents(self, b):
         self.app.agents_message(b)
 
-    @handles('point', 'pointClear', 'pointCoached', 'replayDrawing')
+    @handles('point')
     def _point(self, b):
+        if not self.pointing:
+            return
+        if self.point_active:
+            self.point_active = False
+            self.pointing.finish()
+            if self.point_context:
+                self.js('point', {'active': False, 'marked': True})
+            return
+        if self.busy or self.listening:
+            return self.js('notice', 'Finish or stop listening first.')
+        self.point_active = True
+        self.pointing.begin(self._pointed)
+        self.js('point', {'active': True, 'marked': False})
+
+    def _pointed(self, points):
+        ctx = self.make_point_context(points)
+        if not ctx:
+            return self.js('notice', 'Couldn’t capture that mark.')
+        old = (self.point_context or {}).get('image')
+        if old:
+            try:
+                os.unlink(old)   # a redrawn mark replaces the last crop
+            except OSError:
+                pass
+        self.point_context = ctx
+        self.js('point', {'active': self.point_active, 'marked': True, 'picked': False, 'thumb': self.thumb(ctx['image']) if ctx.get('image') else ''})
+
+    @handles('pointClear')
+    def _point_clear(self, b):
+        self.point_context = None
+
+    @handles('pointCoached')
+    def _point_coached(self, b):
+        self.set_pref('pointCoached', True)
+
+    @handles('replayDrawing')
+    def _replay_drawing(self, b):
         self.app.point_message(b)
 
     @handles('miniRect', 'miniOpen', 'miniClear')
